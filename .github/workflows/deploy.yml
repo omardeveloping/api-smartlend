@@ -1,0 +1,59 @@
+name: 🚀 Deploy to VPS (api-smartlend)
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📦 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🐙 SSH deploy (as omar)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}   # omar
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+
+            REPO_DIR="/opt/api-smartlend"
+            APP_DIR="/opt/api-smartlend/apismartlend"
+            COMPOSE_FILE="compose.yml"
+
+            echo "🔧 Actualizando repo en $REPO_DIR..."
+            test -d "$REPO_DIR/.git" || (echo "❌ Falta repo git en $REPO_DIR" && exit 1)
+            cd "$REPO_DIR"
+            git fetch origin
+            git reset --hard origin/main
+
+            echo "📂 Entrando a $APP_DIR..."
+            cd "$APP_DIR"
+
+            if command -v docker compose >/dev/null 2>&1; then
+              COMPOSE="docker compose"
+            else
+              COMPOSE="docker-compose"
+            fi
+
+            echo "📦 Build sin caché..."
+            $COMPOSE -f "$COMPOSE_FILE" build --no-cache
+
+            echo "🚀 Up -d (remove orphans)..."
+            $COMPOSE -f "$COMPOSE_FILE" up -d --remove-orphans
+
+            echo "🧹 Prune imágenes colgantes..."
+            docker image prune -f || true
+
+            echo "⏳ Esperando 10s..."
+            sleep 10
+
+            echo "📊 docker ps:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
+
+            echo "✅ Despliegue completo"
