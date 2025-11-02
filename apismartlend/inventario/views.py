@@ -2,19 +2,19 @@ from rest_framework import viewsets
 
 from .models import (
     categoria_herramienta,
-    estado_herramienta,
-    herramienta,
+    tipo_herramienta,
+    herramienta_individual,
 )
 from .serializers import (
     CategoriaHerramientaSerializer,
-    EstadoHerramientaSerializer,
-    HerramientaSerializer,
+    TipoHerramientaSerializer,
+    HerramientaIndividualSerializer,
 )
 
 
-class EstadoHerramientaViewSet(viewsets.ModelViewSet):
-    queryset = estado_herramienta.objects.all()
-    serializer_class = EstadoHerramientaSerializer
+class TipoHerramientaViewSet(viewsets.ModelViewSet):
+    queryset = tipo_herramienta.objects.all()
+    serializer_class = TipoHerramientaSerializer
 
 
 class CategoriaHerramientaViewSet(viewsets.ModelViewSet):
@@ -22,6 +22,6 @@ class CategoriaHerramientaViewSet(viewsets.ModelViewSet):
     serializer_class = CategoriaHerramientaSerializer
 
 
-class HerramientaViewSet(viewsets.ModelViewSet):
-    queryset = herramienta.objects.all()
-    serializer_class = HerramientaSerializer
+class HerramientaIndividualViewSet(viewsets.ModelViewSet):
+    queryset = herramienta_individual.objects.all()
+    serializer_class = HerramientaIndividualSerializer

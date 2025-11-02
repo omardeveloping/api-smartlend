@@ -2,14 +2,14 @@ from rest_framework import serializers
 
 from .models import (
     categoria_herramienta,
-    estado_herramienta,
-    herramienta,
+    tipo_herramienta,
+    herramienta_individual,
 )
 
 
-class EstadoHerramientaSerializer(serializers.ModelSerializer):
+class TipoHerramientaSerializer(serializers.ModelSerializer):
     class Meta:
-        model = estado_herramienta
+        model = tipo_herramienta
         fields = '__all__'
 
 
@@ -19,7 +19,7 @@ class CategoriaHerramientaSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-class HerramientaSerializer(serializers.ModelSerializer):
+class HerramientaIndividualSerializer(serializers.ModelSerializer):
     class Meta:
-        model = herramienta
+        model = herramienta_individual
         fields = '__all__'

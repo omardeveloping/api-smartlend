@@ -8,6 +8,10 @@ class rol_usuarios(models.Model):
     desc = models.CharField(max_length=100)
     permisos = models.CharField(max_length=200)
 
+class carrera(models.Model):
+    id_carrera = models.AutoField(primary_key=True)
+    nombre = models.CharField(max_length=50)
+
 class Usuario(AbstractUser):
     EMAIL_FIELD = 'correo'
     REQUIRED_FIELDS = ['correo', 'rut', 'nombres', 'apellidos', 'carrera', 'embedding']
@@ -18,7 +22,7 @@ class Usuario(AbstractUser):
     embedding = models.CharField(max_length=512)
     nombres = models.CharField(max_length=35)
     apellidos = models.CharField(max_length=35)
-    carrera = models.CharField(max_length=50)
+    id_carrera = models.ForeignKey(carrera, on_delete=models.CASCADE, null=True, blank=True)
     correo = models.EmailField(max_length=50, unique=True)
     id_rol = models.ForeignKey(rol_usuarios, on_delete=models.CASCADE, null=True, blank=True)
 
