@@ -37,13 +37,6 @@ WORKDIR /app
 # Copy application code
 COPY --chown=appuser:appuser . .
 
-# Collect static files
-RUN mkdir -p /app/staticfiles && chown appuser:appuser /app/staticfiles
- 
-RUN python manage.py collectstatic --noinput
-
-RUN chown -R appuser:appuser /app/staticfiles
-
 # Set environment variables to optimize Python
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1 
@@ -54,5 +47,7 @@ USER appuser
 # Expose the application port
 EXPOSE 8000 
  
-# Start the application using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "apismartlend.wsgi:application"]
+# Entrypoint
+COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
