@@ -14,7 +14,7 @@ class carrera(models.Model):
 
 class Usuario(AbstractUser):
     EMAIL_FIELD = 'correo'
-    REQUIRED_FIELDS = ['correo', 'rut', 'nombres', 'apellidos', 'carrera', 'embedding']
+    REQUIRED_FIELDS = ['correo', 'rut', 'nombres', 'apellidos', 'id_carrera', 'embedding']
     first_name = None
     last_name = None
 

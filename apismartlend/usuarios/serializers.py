@@ -22,7 +22,7 @@ class UsuarioSerializer(serializers.ModelSerializer):
             'embedding',
             'nombres',
             'apellidos',
-            'carrera',
+            'id_carrera',
             'correo',
             'id_rol',
             'is_active',
