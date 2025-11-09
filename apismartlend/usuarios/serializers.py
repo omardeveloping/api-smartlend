@@ -24,6 +24,7 @@ class UsuarioSerializer(serializers.ModelSerializer):
             'apellidos',
             'id_carrera',
             'correo',
+            'foto',
             'id_rol',
             'is_active',
             'is_staff',

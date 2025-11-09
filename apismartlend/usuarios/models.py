@@ -24,6 +24,7 @@ class Usuario(AbstractUser):
     apellidos = models.CharField(max_length=35)
     id_carrera = models.ForeignKey(carrera, on_delete=models.CASCADE, null=True, blank=True)
     correo = models.EmailField(max_length=50, unique=True)
+    foto = models.ImageField(upload_to='usuarios/fotos/', null=True, blank=True)
     id_rol = models.ForeignKey(rol_usuarios, on_delete=models.CASCADE, null=True, blank=True)
 
     def __str__(self):
