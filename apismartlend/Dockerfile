@@ -33,21 +33,23 @@ COPY --from=builder /usr/local/bin/ /usr/local/bin/
  
 # Set the working directory
 WORKDIR /app
- 
+
 # Copy application code
 COPY --chown=appuser:appuser . .
+COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
+
+RUN chmod +x /app/entrypoint.sh
+
+# Switch to non-root user
+USER appuser
 
 # Set environment variables to optimize Python
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1 
  
-# Switch to non-root user
-USER appuser
- 
 # Expose the application port
 EXPOSE 8000 
  
 # Entrypoint
-COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+
 ENTRYPOINT ["/app/entrypoint.sh"]
