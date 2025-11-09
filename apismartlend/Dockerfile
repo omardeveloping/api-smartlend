@@ -34,12 +34,12 @@ COPY --from=builder /usr/local/bin/ /usr/local/bin/
 # Set the working directory
 WORKDIR /app
 
+# Copy application code después
+COPY --chown=appuser:appuser . .
+
 # Copy entrypoint.sh *primero* y dar permisos
 COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
-
-# Copy application code después
-COPY --chown=appuser:appuser . .
 
 # Switch to non-root user
 USER appuser
