@@ -9,3 +9,8 @@ psycopg2-binary==2.9.10
 sqlparse==0.5.3
 tzdata==2025.2
 whitenoise==6.11.0
+setuptools==75.6.0
+cryptography==43.0.3
+insightface==0.7.3
+onnxruntime==1.23.2
+opencv-python-headless==4.10.0.84

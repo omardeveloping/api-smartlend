@@ -8,7 +8,20 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Instalar dependencias
+# Dependencias del sistema necesarias para compilar dlib/face_recognition
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    python3-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar dependencias Python
 RUN pip install --upgrade pip
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
@@ -31,6 +44,17 @@ WORKDIR /app
 
 # Copiar código fuente
 COPY --chown=appuser:appuser . .
+
+# Librerías del sistema necesarias en runtime
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopenblas-dev \
+    liblapack-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Permisos entrypoint
 COPY entrypoint.sh /app/entrypoint.sh

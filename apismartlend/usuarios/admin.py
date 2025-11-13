@@ -13,19 +13,19 @@ class RolUsuarioAdmin(admin.ModelAdmin):
 @admin.register(Usuario)
 class UsuarioAdmin(UserAdmin):
     fieldsets = (
-        (None, {'fields': ('username', 'password')}),
+        (None, {'fields': ('correo', 'password')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Important dates', {'fields': ('last_login', 'date_joined')}),
         ('Informacion adicional', {
-            'fields': ('rut', 'embedding', 'nombres', 'apellidos', 'carrera', 'correo', 'id_rol'),
+            'fields': ('rut', 'embedding', 'nombres', 'apellidos', 'id_carrera', 'id_rol'),
         }),
     )
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('username', 'password1', 'password2', 'rut', 'embedding', 'nombres', 'apellidos', 'carrera', 'correo', 'id_rol'),
+            'fields': ('correo', 'password1', 'password2', 'rut', 'embedding', 'nombres', 'apellidos', 'id_carrera', 'id_rol'),
         }),
     )
-    list_display = ('username', 'rut', 'correo', 'id_rol', 'is_staff')
-    search_fields = ('username', 'rut', 'correo', 'nombres', 'apellidos')
-    ordering = ('username',)
+    list_display = ('correo', 'rut', 'id_rol', 'is_staff')
+    search_fields = ('correo', 'rut', 'nombres', 'apellidos')
+    ordering = ('correo',)

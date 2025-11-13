@@ -13,22 +13,23 @@ class carrera(models.Model):
     nombre = models.CharField(max_length=50)
 
 class Usuario(AbstractUser):
+    username = None
     EMAIL_FIELD = 'correo'
-    REQUIRED_FIELDS = ['correo', 'rut', 'nombres', 'apellidos', 'id_carrera', 'embedding']
+    USERNAME_FIELD = 'correo'
+    REQUIRED_FIELDS = ['rut', 'nombres', 'apellidos', 'id_carrera']
     first_name = None
     last_name = None
 
     rut = models.CharField(max_length=12, unique=True)
-    embedding = models.CharField(max_length=512)
+    embedding = models.TextField(null=True, blank=True)
     nombres = models.CharField(max_length=35)
     apellidos = models.CharField(max_length=35)
     id_carrera = models.ForeignKey(carrera, on_delete=models.CASCADE, null=True, blank=True)
     correo = models.EmailField(max_length=50, unique=True)
-    foto = models.ImageField(upload_to='usuarios/fotos/', null=True, blank=True)
     id_rol = models.ForeignKey(rol_usuarios, on_delete=models.CASCADE, null=True, blank=True)
 
     def __str__(self):
-        return self.username or self.rut
+        return self.correo or self.rut
 
     def save(self, *args, **kwargs):
         # Keep Django's default email field in sync with correo.
