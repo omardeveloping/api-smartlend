@@ -57,7 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Permisos entrypoint
-COPY entrypoint.sh /app/entrypoint.sh
+COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
 RUN chmod 755 /app/entrypoint.sh
 
 # Cambiar a usuario sin privilegios
