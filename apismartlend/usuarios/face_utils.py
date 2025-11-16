@@ -1,8 +1,9 @@
 import base64
+import binascii
 import json
 
 import numpy as np
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from insightface.app import FaceAnalysis
 from PIL import Image, UnidentifiedImageError
@@ -18,6 +19,7 @@ class FaceProcessor:
         )
         det_size = getattr(settings, 'INSIGHTFACE_DET_SIZE', (640, 640))
         model_name = getattr(settings, 'INSIGHTFACE_MODEL', 'buffalo_l')
+        self.match_threshold = getattr(settings, 'FACE_MATCH_THRESHOLD', 0.35)
         self.app = FaceAnalysis(name=model_name, providers=providers)
         self.app.prepare(ctx_id=0, det_size=det_size)
 
@@ -46,3 +48,21 @@ class FaceProcessor:
         data = json.dumps(embedding.tolist()).encode()
         token = self.cipher.encrypt(data)
         return base64.b64encode(token).decode()
+
+    def decrypt_embedding(self, encrypted_embedding):
+        if not encrypted_embedding:
+            return None
+        try:
+            token = base64.b64decode(encrypted_embedding)
+            data = self.cipher.decrypt(token)
+            values = json.loads(data.decode())
+        except (binascii.Error, InvalidToken, json.JSONDecodeError, AttributeError):
+            return None
+        return np.asarray(values, dtype=np.float32)
+
+    def match_embeddings(self, candidate, stored, threshold=None):
+        if candidate is None or stored is None:
+            return False, None
+        threshold = threshold if threshold is not None else self.match_threshold
+        distance = float(np.linalg.norm(candidate - stored))
+        return distance <= threshold, distance

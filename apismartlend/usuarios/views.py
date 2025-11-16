@@ -1,3 +1,6 @@
+import json
+
+import numpy as np
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
@@ -75,3 +78,69 @@ def register_face(request):
         {'success': True, 'usuario_id': usuario.id, 'created': created},
         status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
     )
+
+
+def _parse_embedding(raw_embedding):
+    if raw_embedding is None:
+        raise ValueError('Falta el embedding')
+
+    payload = raw_embedding
+    if isinstance(payload, str):
+        payload = payload.strip()
+        if not payload:
+            raise ValueError('Embedding vacío')
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            try:
+                payload = [float(value) for value in payload.split(',') if value.strip()]
+            except ValueError as exc:
+                raise ValueError('Embedding debe ser una lista de números válidos') from exc
+
+    if not isinstance(payload, (list, tuple)):
+        raise ValueError('Embedding debe ser una lista de números')
+    if not payload:
+        raise ValueError('Embedding vacío')
+
+    try:
+        return np.asarray([float(value) for value in payload], dtype=np.float32)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Embedding debe contener solo números') from exc
+
+
+def _embedding_from_image(image_file):
+    embedding = processor.extract_embedding(image_file)
+    if isinstance(embedding, str) and embedding == 'invalid':
+        raise ValueError('Archivo de imagen inválido')
+    if embedding is None:
+        raise ValueError('No se detectó rostro válido')
+    return embedding
+
+
+@api_view(['POST'])
+def login_face(request):
+    if 'image' in request.FILES:
+        try:
+            incoming_embedding = _embedding_from_image(request.FILES['image'])
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        try:
+            incoming_embedding = _parse_embedding(request.data.get('embedding'))
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    usuarios = Usuario.objects.exclude(embedding__isnull=True).exclude(embedding__exact='')
+    for usuario in usuarios.iterator():
+        stored_embedding = processor.decrypt_embedding(usuario.embedding)
+        is_match, _ = processor.match_embeddings(incoming_embedding, stored_embedding)
+        if is_match:
+            return Response(
+                {
+                    'existe_embedding': True,
+                    'usuario_id': usuario.id,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+    return Response({'existe_embedding': False}, status=status.HTTP_200_OK)
