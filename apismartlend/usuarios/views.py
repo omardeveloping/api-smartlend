@@ -1,14 +1,17 @@
 import json
 
 import numpy as np
+from django.contrib.auth import authenticate
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework import generics
 
 from .face_utils import FaceProcessor
 from .models import Usuario, carrera, rol_usuarios
-from .serializers import RolUsuarioSerializer, UsuarioSerializer
+from .serializers import CarreraSerializer, LoginBodegueroSerializer, RolUsuarioSerializer, UsuarioSerializer
 
 processor = FaceProcessor()
 
@@ -18,9 +21,47 @@ class RolUsuarioViewSet(viewsets.ModelViewSet):
     serializer_class = RolUsuarioSerializer
 
 
+class CarreraViewSet(viewsets.ModelViewSet):
+    queryset = carrera.objects.all()
+    serializer_class = CarreraSerializer
+
+
 class UsuarioViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.all()
     serializer_class = UsuarioSerializer
+
+
+class LoginBodegueroView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = LoginBodegueroSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        correo = serializer.validated_data['correo']
+        password = serializer.validated_data['password']
+
+        user = authenticate(request, username=correo, password=password)
+        if user is None:
+            return Response({'error': 'Credenciales inválidas'}, status=status.HTTP_401_UNAUTHORIZED)
+        if not user.is_active:
+            return Response({'error': 'Usuario inactivo'}, status=status.HTTP_403_FORBIDDEN)
+
+        if user.id_rol and user.id_rol.nombre.lower() != 'bodeguero':
+            return Response({'error': 'Rol no autorizado para este login'}, status=status.HTTP_403_FORBIDDEN)
+
+        return Response(
+            {
+                'success': True,
+                'usuario_id': user.id,
+                'correo': user.correo,
+                'nombres': user.nombres,
+                'apellidos': user.apellidos,
+                'rol': user.id_rol.nombre if user.id_rol else None,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 @api_view(['GET', 'POST'])
 def register_face(request):
