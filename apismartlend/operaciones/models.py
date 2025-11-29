@@ -23,6 +23,17 @@ class prestamo(models.Model):
     id_herramienta_individual = models.ForeignKey('inventario.herramienta_individual', on_delete=models.CASCADE)
     id_tipo_herramienta = models.ForeignKey('inventario.tipo_herramienta', on_delete=models.CASCADE)
 
+class alerta(models.Model):
+    id_alerta = models.AutoField(primary_key=True)
+    prestamo = models.OneToOneField(prestamo, on_delete=models.CASCADE, related_name='alerta')
+    mensaje = models.CharField(max_length=200, default='Prestamo vencido')
+    creada_en = models.DateTimeField(auto_now_add=True)
+    resuelta = models.BooleanField(default=False)
+    resuelta_en = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'Alerta prestamo {self.prestamo_id}'
+
 class test(models.Model):
     id_test = models.AutoField(primary_key=True)
     nombre = models.CharField(max_length=50 )
