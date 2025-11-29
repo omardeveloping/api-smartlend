@@ -180,6 +180,8 @@ def login_face(request):
                 {
                     'existe_embedding': True,
                     'usuario_id': usuario.id,
+                    'nombres': usuario.nombres,
+                    'apellidos': usuario.apellidos,
                 },
                 status=status.HTTP_200_OK,
             )
