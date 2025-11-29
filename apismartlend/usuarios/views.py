@@ -8,7 +8,7 @@ from rest_framework.response import Response
 
 from .face_utils import FaceProcessor
 from .models import Usuario, carrera, rol_usuarios
-from .serializers import RolUsuarioSerializer, UsuarioSerializer
+from .serializers import CarreraSerializer, RolUsuarioSerializer, UsuarioSerializer
 
 processor = FaceProcessor()
 
@@ -16,6 +16,11 @@ processor = FaceProcessor()
 class RolUsuarioViewSet(viewsets.ModelViewSet):
     queryset = rol_usuarios.objects.all()
     serializer_class = RolUsuarioSerializer
+
+
+class CarreraViewSet(viewsets.ModelViewSet):
+    queryset = carrera.objects.all()
+    serializer_class = CarreraSerializer
 
 
 class UsuarioViewSet(viewsets.ModelViewSet):
