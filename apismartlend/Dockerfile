@@ -27,16 +27,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Stage 2: Production stage
 FROM python:3.13-slim
 
+# Create non-root user
 RUN useradd -m -r appuser && \
     mkdir /app && \
-    chown -R appuser /app
+    chown -R appuser:appuser /app
 
 WORKDIR /app
 
-# Copy dependencies
-COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
-COPY --from=builder /usr/local/bin/ /usr/local/bin/
-
+# Install runtime dependencies
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas-dev \
@@ -47,12 +45,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# IMPORTANT: copy entrypoint first
-COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
-RUN chmod 755 /app/entrypoint.sh
+# Copy libraries from builder
+COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
-# Now copy everything else
+# Copy project files (BUT NOT entrypoint)
 COPY --chown=appuser:appuser . .
+
+# Copy entrypoint LAST so it is not overwritten
+COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 USER appuser
 
