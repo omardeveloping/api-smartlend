@@ -56,10 +56,4 @@ jobs:
             echo "📊 docker ps:"
             docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
 
-            echo "⚙️ Ejecutando migraciones Django..."
-            $COMPOSE -f "$COMPOSE_FILE" exec -T django-web python manage.py migrate --noinput
-
-            echo "🧺 Collectstatic..."
-            $COMPOSE -f "$COMPOSE_FILE" exec -T django-web python manage.py collectstatic --noinput
-
             echo "✅ Despliegue completo"
