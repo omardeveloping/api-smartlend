@@ -3,6 +3,11 @@ from rest_framework import serializers
 from .models import Usuario, rol_usuarios, carrera
 
 
+class LoginBodegueroSerializer(serializers.Serializer):
+    correo = serializers.EmailField()
+    password = serializers.CharField(style={'input_type': 'password'})
+
+
 class CarreraSerializer(serializers.ModelSerializer):
     class Meta:
         model = carrera
