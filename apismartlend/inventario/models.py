@@ -15,6 +15,7 @@ class tipo_herramienta(models.Model):
 class herramienta_individual(models.Model):
     id_herramienta = models.AutoField(primary_key=True)
     codigo_barras = models.CharField(max_length=50, unique=True)
+    imagen = models.ImageField(upload_to='herramientas/', null=True, blank=True)
     estado_herramienta = models.CharField(max_length=50)
     fecha_adquisicion = models.DateTimeField()
     id_tipo_herramienta = models.ForeignKey(tipo_herramienta, on_delete=models.CASCADE)
