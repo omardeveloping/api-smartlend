@@ -153,3 +153,5 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
 }
+
+FACE_MATCH_THRESHOLD = 0.6
