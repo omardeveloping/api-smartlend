@@ -153,3 +153,8 @@ REST_FRAMEWORK = {
 }
 
 FACE_MATCH_THRESHOLD = 0.6
+
+# Always treat requests as plain HTTP; ignore proxy SSL headers
+SECURE_SSL_REDIRECT = False
+SECURE_PROXY_SSL_HEADER = None
+USE_X_FORWARDED_HOST = False

@@ -210,3 +210,7 @@ compose.yml
 media/
 apismartlend/compose.yml
 /compose.yml
+
+default.conf
+nginx/default.conf
+apismartlend/nginx/default.conf
