@@ -9,7 +9,7 @@ class tipo_herramienta(models.Model):
     id_tipo_herramienta = models.AutoField(primary_key=True)
     nombre = models.CharField(max_length=50)
     descripcion = models.CharField(max_length=200)
-    imagen_url = models.CharField(max_length=200)
+    imagen_url = models.ImageField(upload_to='tipos_herramienta/', null=True, blank=True)
     id_categoria = models.ForeignKey(categoria_herramienta, on_delete=models.CASCADE)
 
 
