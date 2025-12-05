@@ -1,50 +1,43 @@
-import base64
-import binascii
-import json
-
+import face_recognition
 import numpy as np
-from cryptography.fernet import Fernet, InvalidToken
+import json
+import base64
+from cryptography.fernet import Fernet
 from django.conf import settings
-from insightface.app import FaceAnalysis
-from PIL import Image, UnidentifiedImageError
-
+from PIL import Image
 
 class FaceProcessor:
     def __init__(self):
         self.cipher = Fernet(settings.FACE_ENCRYPTION_KEY.encode())
-        providers = getattr(
-            settings,
-            'INSIGHTFACE_PROVIDERS',
-            ['CPUExecutionProvider'],
-        )
-        det_size = getattr(settings, 'INSIGHTFACE_DET_SIZE', (640, 640))
-        model_name = getattr(settings, 'INSIGHTFACE_MODEL', 'buffalo_l')
-        self.match_threshold = getattr(settings, 'FACE_MATCH_THRESHOLD', 0.35)
-        self.app = FaceAnalysis(name=model_name, providers=providers)
-        self.app.prepare(ctx_id=0, det_size=det_size)
-
-    def _load_image(self, file_obj):
-        try:
-            pil_image = Image.open(file_obj).convert('RGB')
-        except UnidentifiedImageError:
-            return None
-        return np.asarray(pil_image)
+        # Tolerancia: 0.6: Menor es más estricto.
+        self.match_threshold = 0.6
 
     def extract_embedding(self, file_obj):
-        image = self._load_image(file_obj)
-        if image is None:
+        """
+        Extrae el embedding del rostro
+        """
+        try:
+            image = face_recognition.load_image_file(file_obj)
+            face_encodings = face_recognition.face_encodings(image)
+
+            if len(face_encodings) == 0:
+                print("No se encontró ningún rostro en la imagen.")
+                return None
+            
+            if len(face_encodings) > 1:
+                print("Se encontró más de un rostro. Usando el primero.")
+                # Esto opcionmal por ahora pero podriamos usarlo para rechazar más rostros que se puedan ver en la imagen
+                pass
+
+            return face_encodings[0]
+
+        except Exception as e:
+            print(f"Error procesando rostro con face_recognition: {e}")
             return 'invalid'
 
-        # InsightFace espera BGR.
-        bgr = image[:, :, ::-1]
-        faces = self.app.get(bgr)
-        if not faces:
-            return None
-
-        embedding = faces[0].normed_embedding
-        return np.asarray(embedding)
-
     def encrypt_embedding(self, embedding):
+        if embedding is None:
+            return None
         data = json.dumps(embedding.tolist()).encode()
         token = self.cipher.encrypt(data)
         return base64.b64encode(token).decode()
@@ -56,13 +49,24 @@ class FaceProcessor:
             token = base64.b64decode(encrypted_embedding)
             data = self.cipher.decrypt(token)
             values = json.loads(data.decode())
-        except (binascii.Error, InvalidToken, json.JSONDecodeError, AttributeError):
+            return np.asarray(values)
+        except Exception as e:
+            print(f"Error desencriptando: {e}")
             return None
-        return np.asarray(values, dtype=np.float32)
 
-    def match_embeddings(self, candidate, stored, threshold=None):
-        if candidate is None or stored is None:
-            return False, None
+    def match_embeddings(self, candidate_encoding, stored_encoding, threshold=None):
+        
+        if candidate_encoding is None or stored_encoding is None:
+            return False, 0.0
+            
         threshold = threshold if threshold is not None else self.match_threshold
-        distance = float(np.linalg.norm(candidate - stored))
-        return distance <= threshold, distance
+        
+        # face_recognition.face_distance devuelve una lista de distancias
+        # Comparamos el candidato contra una lista que contiene solo el guardado [stored]
+        distances = face_recognition.face_distance([stored_encoding], candidate_encoding)
+        
+        distancia = distances[0]
+        is_match = distancia <= threshold
+        
+        # Convertimos numpy bool/float a tipos nativos de Python
+        return bool(is_match), float(distancia)
