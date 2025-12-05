@@ -16,6 +16,11 @@ from .serializers import CarreraSerializer, LoginBodegueroSerializer, RolUsuario
 processor = FaceProcessor()
 
 
+def _is_128d(embedding):
+    arr = np.asarray(embedding)
+    return arr.shape == (128,)
+
+
 class RolUsuarioViewSet(viewsets.ModelViewSet):
     queryset = rol_usuarios.objects.all()
     serializer_class = RolUsuarioSerializer
@@ -84,6 +89,9 @@ def register_face(request):
     if embedding is None:
         print("[register_face] no se detectó rostro")
         return Response({'error': 'No se detectó rostro válido'}, status=status.HTTP_400_BAD_REQUEST)
+    if not _is_128d(embedding):
+        print(f"[register_face] embedding dimensión inválida: {np.asarray(embedding).shape}")
+        return Response({'error': 'Embedding con dimensión inválida'}, status=status.HTTP_400_BAD_REQUEST)
 
     encrypted = processor.encrypt_embedding(embedding)
 
@@ -171,9 +179,14 @@ def login_face(request):
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+    if not _is_128d(incoming_embedding):
+        return Response({'error': 'Embedding con dimensión inválida'}, status=status.HTTP_400_BAD_REQUEST)
+
     usuarios = Usuario.objects.exclude(embedding__isnull=True).exclude(embedding__exact='')
     for usuario in usuarios.iterator():
         stored_embedding = processor.decrypt_embedding(usuario.embedding)
+        if not _is_128d(stored_embedding):
+            continue
         is_match, _ = processor.match_embeddings(incoming_embedding, stored_embedding)
         if is_match:
             return Response(

@@ -55,18 +55,24 @@ class FaceProcessor:
             return None
 
     def match_embeddings(self, candidate_encoding, stored_encoding, threshold=None):
-        
+        """
+        Compara dos embeddings. Si la dimensión no coincide, se devuelve no match.
+        """
         if candidate_encoding is None or stored_encoding is None:
             return False, 0.0
-            
+
+        candidate = np.asarray(candidate_encoding)
+        stored = np.asarray(stored_encoding)
+        if candidate.shape != stored.shape:
+            return False, 1.0
+
         threshold = threshold if threshold is not None else self.match_threshold
-        
+
         # face_recognition.face_distance devuelve una lista de distancias
-        # Comparamos el candidato contra una lista que contiene solo el guardado [stored]
-        distances = face_recognition.face_distance([stored_encoding], candidate_encoding)
-        
+        distances = face_recognition.face_distance([stored], candidate)
+
         distancia = distances[0]
         is_match = distancia <= threshold
-        
+
         # Convertimos numpy bool/float a tipos nativos de Python
         return bool(is_match), float(distancia)
