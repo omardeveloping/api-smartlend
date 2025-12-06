@@ -19,6 +19,17 @@ class carrera(models.Model):
     def __str__(self):
         return self.nombre
 
+
+class DirectorCarrera(models.Model):
+    id_director = models.AutoField(primary_key=True)
+    nombre = models.CharField(max_length=100)
+    correo = models.EmailField(max_length=100)
+    carrera = models.OneToOneField(carrera, on_delete=models.CASCADE, related_name='director')
+
+    def __str__(self):
+        return f'{self.nombre} ({self.carrera.nombre})'
+
+
 class Usuario(AbstractUser):
     username = None
     EMAIL_FIELD = 'correo'
@@ -34,6 +45,9 @@ class Usuario(AbstractUser):
     id_carrera = models.ForeignKey(carrera, on_delete=models.CASCADE, null=True, blank=True)
     correo = models.EmailField(max_length=50, unique=True)
     id_rol = models.ForeignKey(rol_usuarios, on_delete=models.CASCADE, null=True, blank=True)
+    esta_baneado = models.BooleanField(default=False)
+    baneado_en = models.DateTimeField(null=True, blank=True)
+    aviso_ban_enviado = models.BooleanField(default=False)
 
     def __str__(self):
         return self.correo or self.rut

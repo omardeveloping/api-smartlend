@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Usuario, rol_usuarios, carrera
+from .models import DirectorCarrera, Usuario, carrera as CarreraModel, rol_usuarios
 
 
 class LoginBodegueroSerializer(serializers.Serializer):
@@ -10,8 +10,22 @@ class LoginBodegueroSerializer(serializers.Serializer):
 
 class CarreraSerializer(serializers.ModelSerializer):
     class Meta:
-        model = carrera
+        model = CarreraModel
         fields = '__all__'
+
+
+class DirectorCarreraSerializer(serializers.ModelSerializer):
+    carrera = CarreraSerializer(read_only=True)
+    carrera_id = serializers.PrimaryKeyRelatedField(
+        source='carrera',
+        queryset=CarreraModel.objects.all(),
+        write_only=True,
+    )
+
+    class Meta:
+        model = DirectorCarrera
+        fields = ['id_director', 'nombre', 'correo', 'carrera', 'carrera_id']
+        read_only_fields = ('id_director',)
 
 
 class RolUsuarioSerializer(serializers.ModelSerializer):
@@ -38,6 +52,9 @@ class UsuarioSerializer(serializers.ModelSerializer):
             'carrera',
             'correo',
             'id_rol',
+            'esta_baneado',
+            'baneado_en',
+            'aviso_ban_enviado',
             'is_active',
             'is_staff',
             'is_superuser',
@@ -47,6 +64,8 @@ class UsuarioSerializer(serializers.ModelSerializer):
         read_only_fields = (
             'id',
             'embedding',
+            'baneado_en',
+            'aviso_ban_enviado',
             'is_staff',
             'is_superuser',
             'last_login',

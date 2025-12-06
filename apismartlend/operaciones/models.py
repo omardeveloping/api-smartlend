@@ -50,6 +50,7 @@ class alerta(models.Model):
     id_alerta = models.AutoField(primary_key=True)
     prestamo = models.OneToOneField(prestamo, on_delete=models.CASCADE, related_name='alerta')
     mensaje = models.CharField(max_length=200, default='Prestamo vencido')
+    criticidad = models.CharField(max_length=20, null=True, blank=True)
     creada_en = models.DateTimeField(auto_now_add=True)
     resuelta = models.BooleanField(default=False)
     resuelta_en = models.DateTimeField(null=True, blank=True)

@@ -24,6 +24,17 @@ DATABASE_USERNAME=smartlend
 DATABASE_PASSWORD=smartlend
 DATABASE_HOST=localhost   # usa "db" si levantas docker compose
 DATABASE_PORT=5432
+REDIS_HOST=localhost      # usa "redis" si levantas docker compose
+REDIS_PORT=6379
+CELERY_BROKER_URL=redis://localhost:6379/0   # usa redis si levantas docker compose
+CELERY_RESULT_BACKEND=redis://localhost:6379/1
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_HOST_USER=smartlend.notificacion@gmail.com
+EMAIL_HOST_PASSWORD="kanh okjz mtfo nian"   # contraseña de aplicación
+DEFAULT_FROM_EMAIL=smartlend.notificacion@gmail.com
 # Opcional: duplica SECRET_KEY en DJANGO_SECRET_KEY si usas compose tal cual
 DJANGO_SECRET_KEY=${SECRET_KEY}
 ```
@@ -40,7 +51,7 @@ Si no defines `DATABASE_*` usara SQLite en `polls`. El codigo lee `SECRET_KEY`; 
 
 ## Ejecucion con Docker Compose
 1) Crea `.env` como arriba (usa `DATABASE_HOST=db`).  
-2) Construye y levanta: `docker compose up --build`.  
+2) Construye y levanta: `docker compose up --build`. Esto levanta PostgreSQL, Redis, `django-web`, `celery-worker` y `celery-beat` (tarea diaria para bloquear usuarios con prestamos vencidos).  
    - `entrypoint.sh` aplica migraciones, colecta estaticos y lanza Gunicorn en `0.0.0.0:8000`.  
 3) Accede en `http://localhost:8000`. El volumen monta el codigo para desarrollo.
 
@@ -48,20 +59,21 @@ Si no defines `DATABASE_*` usara SQLite en `polls`. El codigo lee `SECRET_KEY`; 
 - `apismartlend/` (config): `settings.py` define apps (`usuarios`, `inventario`, `operaciones`), CORS, Whitenoise, base de datos y rutas en `urls.py`.
 - `usuarios/`: modelo de usuario custom (`Usuario`) con identificacion por `correo`, roles (`rol_usuarios`) y carreras. Incluye gestion de embeddings faciales:
   - `face_utils.FaceProcessor` usa InsightFace para extraer embedding y lo cifra con Fernet (`FACE_ENCRYPTION_KEY`). Comparacion por norma con umbral 0.35.
-  - Endpoints REST: `/usuarios/api/roles/`, `/usuarios/api/usuarios/` (CRUD).  
-  - Endpoints de rostro: `POST /usuarios/auth/register-face/` recibe imagen + datos basicos y guarda embedding cifrado; `POST /usuarios/auth/login/` recibe imagen o embedding y devuelve coincidencia.  
-  - Admin: `usuarios/admin.py` expone Usuario y roles en el admin de Django.
+  - Endpoints REST: `/usuarios/api/roles/`, `/usuarios/api/usuarios/`, `/usuarios/api/directores/` (CRUD).  
+  - Endpoints de rostro: `POST /usuarios/auth/register-face/` recibe imagen + datos basicos y guarda embedding cifrado; `POST /usuarios/auth/login/` recibe imagen o embedding y devuelve coincidencia (si el usuario esta baneado responde `BANNED`).  
+  - Admin: `usuarios/admin.py` expone Usuario, roles y directores de carrera en el admin de Django.
 - `inventario/`: modelos de categorias, tipos de herramienta y herramientas individuales con codigos de barra. Endpoints REST en `/inventario/api/` (CRUD via viewsets).
 - `operaciones/`: reservas y prestamos vinculados a usuarios y herramientas. Endpoints REST en `/operaciones/api/` (CRUD via viewsets).
 - `tools/convert_image.py`: script CLI para convertir imagenes a RGB (JPEG/PNG), util si InsightFace rechaza formatos.  
 - `check_image.py`: script de prueba con `face_recognition` para inspeccionar una imagen local.  
-- Infra: `Dockerfile` multi-stage instala deps nativos y Python; `compose.yml` levanta Postgres 17 + web; `entrypoint.sh` migra/colecta estaticos y ejecuta Gunicorn.
+- Infra: `Dockerfile` multi-stage instala deps nativos y Python; `compose.yml` levanta Postgres 17 + Redis + web + Celery worker/beat; `entrypoint.sh` migra/colecta estaticos y ejecuta Gunicorn.
 
 ## Operaciones tipicas
 - Cargar datos base (roles, carreras, categorias) via admin (`/admin/`) o los endpoints REST.  
 - Registrar un usuario con rostro: enviar `rut`, `nombres`, `apellidos`, `correo`, `rol`, `carrera` (opcional) y archivo `image` a `/usuarios/auth/register-face/`.  
 - Validar acceso por rostro: enviar `image` o `embedding` a `/usuarios/auth/login/` y usar el `usuario_id` devuelto.  
 - Gestionar inventario (tipos, categorias, herramientas) y luego crear reservas/prestamos via los endpoints de `inventario` y `operaciones`.
+- Celery Beat revisa prestamos vencidos cada dia; a los 5/10/20 dias crea/actualiza alertas con criticidad Bajo/Medio/Critico (a 10 dias envia correo al estudiante) y a los 20 dias bloquea al usuario (`esta_baneado`) y notifica al director de la carrera asociada.
 
 ## Guia de explicacion para un tercero
 1) Tecnologia y funciones  
@@ -71,7 +83,7 @@ Si no defines `DATABASE_*` usara SQLite en `polls`. El codigo lee `SECRET_KEY`; 
 
 2) Endpoints actuales (prefijo base `http://localhost:8000/`)  
    - Admin: `/admin/`.  
-   - Usuarios: `/usuarios/api/roles/`, `/usuarios/api/usuarios/` (CRUD), `/usuarios/auth/register-face/`, `/usuarios/auth/login/`.  
+   - Usuarios: `/usuarios/api/roles/`, `/usuarios/api/usuarios/`, `/usuarios/api/directores/` (CRUD), `/usuarios/auth/register-face/`, `/usuarios/auth/login/`.  
    - Inventario: `/inventario/api/tipos-herramienta/`, `/inventario/api/categorias-herramienta/`, `/inventario/api/herramientas/`.  
    - Operaciones: `/operaciones/api/reservas/`, `/operaciones/api/prestamos/`.
 

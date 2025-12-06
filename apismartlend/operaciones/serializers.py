@@ -51,6 +51,7 @@ class AlertaSerializer(serializers.ModelSerializer):
             'prestamo',
             'prestamo_detalle',
             'mensaje',
+            'criticidad',
             'creada_en',
             'resuelta',
             'resuelta_en',

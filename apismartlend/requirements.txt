@@ -14,3 +14,5 @@ opencv-python-headless==4.10.0.84
 whitenoise==6.11.0
 # Nueva librería para reconocimiento facial: Se quitan insightface y onnxruntime
 face-recognition==1.3.0
+celery==5.4.0
+redis==5.2.1

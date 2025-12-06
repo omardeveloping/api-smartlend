@@ -3,15 +3,21 @@ import json
 import numpy as np
 from django.contrib.auth import authenticate
 from django.shortcuts import get_object_or_404
+from rest_framework import generics
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework import generics
 
 from .face_utils import FaceProcessor
-from .models import Usuario, carrera, rol_usuarios
-from .serializers import CarreraSerializer, LoginBodegueroSerializer, RolUsuarioSerializer, UsuarioSerializer
+from .models import DirectorCarrera, Usuario, carrera, rol_usuarios
+from .serializers import (
+    CarreraSerializer,
+    DirectorCarreraSerializer,
+    LoginBodegueroSerializer,
+    RolUsuarioSerializer,
+    UsuarioSerializer,
+)
 
 processor = FaceProcessor()
 
@@ -21,9 +27,23 @@ def _is_128d(embedding):
     return arr.shape == (128,)
 
 
+def _director_email(usuario):
+    if not usuario.id_carrera_id:
+        return None
+    try:
+        return usuario.id_carrera.director.correo  # type: ignore[attr-defined]
+    except DirectorCarrera.DoesNotExist:
+        return None
+
+
 class RolUsuarioViewSet(viewsets.ModelViewSet):
     queryset = rol_usuarios.objects.all()
     serializer_class = RolUsuarioSerializer
+
+
+class DirectorCarreraViewSet(viewsets.ModelViewSet):
+    queryset = DirectorCarrera.objects.select_related('carrera').all()
+    serializer_class = DirectorCarreraSerializer
 
 
 class CarreraViewSet(viewsets.ModelViewSet):
@@ -52,6 +72,14 @@ class LoginBodegueroView(generics.GenericAPIView):
             return Response({'error': 'Credenciales inválidas'}, status=status.HTTP_401_UNAUTHORIZED)
         if not user.is_active:
             return Response({'error': 'Usuario inactivo'}, status=status.HTTP_403_FORBIDDEN)
+        if user.esta_baneado:
+            return Response(
+                {
+                    'error': 'BANNED: préstamo vencido por más de 20 días. Se notificó al director de carrera.',
+                    'director_correo': _director_email(user),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if user.id_rol and user.id_rol.nombre.lower() != 'bodeguero':
             return Response({'error': 'Rol no autorizado para este login'}, status=status.HTTP_403_FORBIDDEN)
@@ -189,6 +217,14 @@ def login_face(request):
             continue
         is_match, _ = processor.match_embeddings(incoming_embedding, stored_embedding)
         if is_match:
+            if usuario.esta_baneado:
+                return Response(
+                    {
+                        'error': 'BANNED: préstamo vencido por más de 20 días. Se notificó al director de carrera.',
+                        'director_correo': _director_email(usuario),
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
             return Response(
                 {
                     'existe_embedding': True,
