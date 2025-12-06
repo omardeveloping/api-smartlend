@@ -27,6 +27,7 @@ class PrestamoSerializer(serializers.ModelSerializer):
             'estado_prestamo',
             'estado_devolucion',
             'observaciones',
+            'codigo',
             'id_usuario',
             'id_herramienta_individual',
             'id_tipo_herramienta',

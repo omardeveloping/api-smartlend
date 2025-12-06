@@ -71,15 +71,19 @@ def ban_overdue_prestamos():
                 and loan.id_usuario
                 and loan.id_usuario.correo
             ):
+                if not loan.codigo:
+                    loan.save(update_fields=['codigo'])
+                codigo_texto = loan.codigo or 'N/A'
                 herramienta = getattr(loan.id_herramienta_individual, 'id_tipo_herramienta', None)
                 herramienta_nombre = getattr(herramienta, 'nombre', None)
                 subject = 'Recuerda devolver tu préstamo vencido'
                 body = (
                     f'Hola {loan.id_usuario.nombres},\n\n'
                     'Tienes un préstamo vencido. Por favor devuelve la herramienta.\n'
-                    f'Prestamo #{loan.id_prestamo} '
+                    f'Préstamo #{loan.id_prestamo} '
                     f'{"(" + herramienta_nombre + ") " if herramienta_nombre else ""}'
                     f'venció el {loan.fecha_devolucion_esperada.date()} '
+                    f'y su código es {codigo_texto}.\n'
                     f'y lleva {dias_atraso} días de atraso.\n\n'
                     'Si llegas a 20 días serás bloqueado y se notificará al director de carrera.'
                 )
