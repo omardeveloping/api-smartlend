@@ -10,7 +10,7 @@ class FaceProcessor:
     def __init__(self):
         self.cipher = Fernet(settings.FACE_ENCRYPTION_KEY.encode())
         # Tolerancia: 0.6: Menor es más estricto.
-        self.match_threshold = 0.6
+        self.match_threshold = 0.5
 
     def extract_embedding(self, file_obj):
         """
