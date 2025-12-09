@@ -23,6 +23,9 @@ def ban_overdue_prestamos():
             'id_usuario__id_carrera',
             'id_herramienta_individual',
             'id_herramienta_individual__id_tipo_herramienta',
+        ).prefetch_related(
+            'herramientas',
+            'herramientas__id_tipo_herramienta',
         )
         .filter(
             fecha_devolucion_real__isnull=True,
@@ -74,8 +77,17 @@ def ban_overdue_prestamos():
                 if not loan.codigo:
                     loan.save(update_fields=['codigo'])
                 codigo_texto = loan.codigo or 'N/A'
-                herramienta = getattr(loan.id_herramienta_individual, 'id_tipo_herramienta', None)
-                herramienta_nombre = getattr(herramienta, 'nombre', None)
+                herramientas = list(loan.herramientas.all())
+                if not herramientas and getattr(loan, 'id_herramienta_individual_id', None):
+                    herramientas = [loan.id_herramienta_individual]
+                herramientas_codigos = ', '.join([h.codigo_barras for h in herramientas if h.codigo_barras])
+                tipos_herramienta = {
+                    getattr(h.id_tipo_herramienta, 'nombre', None) for h in herramientas
+                }
+                herramienta_nombre = ', '.join(sorted(filter(None, tipos_herramienta)))
+                if not herramienta_nombre and loan.id_tipo_herramienta_id:
+                    herramienta_nombre = getattr(loan.id_tipo_herramienta, 'nombre', None)
+                detalle_herramientas = f'Herramientas: {herramientas_codigos}.\n' if herramientas_codigos else ''
                 subject = 'Recuerda devolver tu préstamo vencido'
                 body = (
                     f'Hola {loan.id_usuario.nombres},\n\n'
@@ -84,7 +96,8 @@ def ban_overdue_prestamos():
                     f'{"(" + herramienta_nombre + ") " if herramienta_nombre else ""}'
                     f'venció el {loan.fecha_devolucion_esperada.date()} '
                     f'y su código es {codigo_texto}.\n'
-                    f'y lleva {dias_atraso} días de atraso.\n\n'
+                    f'{detalle_herramientas}'
+                    f'Lleva {dias_atraso} días de atraso.\n\n'
                     'Si llegas a 20 días serás bloqueado y se notificará al director de carrera.'
                 )
                 try:

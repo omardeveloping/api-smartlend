@@ -21,7 +21,10 @@ class ReservaViewSet(viewsets.ModelViewSet):
 
 
 class PrestamoViewSet(viewsets.ModelViewSet):
-    queryset = prestamo.objects.all()
+    queryset = prestamo.objects.all().prefetch_related(
+        'herramientas',
+        'herramientas__id_tipo_herramienta',
+    )
     serializer_class = PrestamoSerializer
 
     @action(detail=False, methods=['get'])

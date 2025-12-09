@@ -18,6 +18,10 @@ class reserva(models.Model):
     id_usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     id_tipo_herramienta = models.ForeignKey('inventario.tipo_herramienta', on_delete=models.CASCADE)
 
+class prestamoHerramienta(models.Model):
+    id_prestamo = models.ForeignKey('prestamo', on_delete=models.CASCADE, related_name='detalle_herramientas')
+    id_herramienta_individual = models.ForeignKey('inventario.herramienta_individual', on_delete=models.CASCADE, related_name='prestamos')
+
 class prestamo(models.Model):
     # ### 2. NUEVO: Definimos las opciones permitidas para un Préstamo
     class EstadoPrestamo(models.TextChoices):
@@ -49,6 +53,7 @@ class prestamo(models.Model):
     observaciones = models.CharField(max_length=200, null=True, blank=True)
     id_usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     id_herramienta_individual = models.ForeignKey('inventario.herramienta_individual', on_delete=models.CASCADE)
+    herramientas = models.ManyToManyField('inventario.herramienta_individual', through=prestamoHerramienta, related_name='prestamos_asociados')
     id_tipo_herramienta = models.ForeignKey('inventario.tipo_herramienta', on_delete=models.CASCADE)
     codigo = models.CharField(max_length=20, null=True, blank=True)
 

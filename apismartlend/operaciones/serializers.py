@@ -1,6 +1,9 @@
 from django.utils import timezone
 from rest_framework import serializers
 
+from inventario.models import herramienta_individual
+from inventario.serializers import HerramientaIndividualSerializer
+
 from .models import (
     alerta,
     prestamo,
@@ -16,6 +19,12 @@ class ReservaSerializer(serializers.ModelSerializer):
 
 class PrestamoSerializer(serializers.ModelSerializer):
     esta_vencido = serializers.SerializerMethodField()
+    herramientas = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=herramienta_individual.objects.all(),
+        required=False,
+    )
+    herramientas_detalle = HerramientaIndividualSerializer(source='herramientas', many=True, read_only=True)
 
     class Meta:
         model = prestamo
@@ -29,8 +38,9 @@ class PrestamoSerializer(serializers.ModelSerializer):
             'observaciones',
             'codigo',
             'id_usuario',
-            'id_herramienta_individual',
             'id_tipo_herramienta',
+            'herramientas',
+            'herramientas_detalle',
             'esta_vencido',
         ]
 
