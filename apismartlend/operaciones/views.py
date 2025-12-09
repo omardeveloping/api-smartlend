@@ -16,8 +16,15 @@ from .serializers import (
 
 
 class ReservaViewSet(viewsets.ModelViewSet):
-    queryset = reserva.objects.all()
+    queryset = reserva.objects.all().prefetch_related(
+        'herramientas',
+        'herramientas__id_tipo_herramienta',
+    )
     serializer_class = ReservaSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        return ctx
 
 
 class PrestamoViewSet(viewsets.ModelViewSet):

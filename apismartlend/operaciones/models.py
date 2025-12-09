@@ -17,6 +17,12 @@ class reserva(models.Model):
     estado_reserva = models.CharField(max_length=50)
     id_usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     id_tipo_herramienta = models.ForeignKey('inventario.tipo_herramienta', on_delete=models.CASCADE)
+    herramientas = models.ManyToManyField(
+        'inventario.herramienta_individual',
+        blank=True,
+        related_name='reservas_asociadas',
+    )
+    herramientas = models.ManyToManyField('inventario.herramienta_individual', related_name='reservas_asociadas')
 
 class prestamoHerramienta(models.Model):
     id_prestamo = models.ForeignKey('prestamo', on_delete=models.CASCADE, related_name='detalle_herramientas')
@@ -52,9 +58,9 @@ class prestamo(models.Model):
 
     observaciones = models.CharField(max_length=200, null=True, blank=True)
     id_usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    id_herramienta_individual = models.ForeignKey('inventario.herramienta_individual', on_delete=models.CASCADE)
+    id_herramienta_individual = models.ForeignKey('inventario.herramienta_individual', on_delete=models.CASCADE, null=True, blank=True)
     herramientas = models.ManyToManyField('inventario.herramienta_individual', through=prestamoHerramienta, related_name='prestamos_asociados')
-    id_tipo_herramienta = models.ForeignKey('inventario.tipo_herramienta', on_delete=models.CASCADE)
+    id_tipo_herramienta = models.ForeignKey('inventario.tipo_herramienta', on_delete=models.CASCADE, related_name='prestamos_tipo_herramienta')
     codigo = models.CharField(max_length=20, null=True, blank=True)
 
     def save(self, *args, **kwargs):

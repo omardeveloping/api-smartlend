@@ -23,5 +23,15 @@ class CategoriaHerramientaViewSet(viewsets.ModelViewSet):
 
 
 class HerramientaIndividualViewSet(viewsets.ModelViewSet):
-    queryset = herramienta_individual.objects.all()
     serializer_class = HerramientaIndividualSerializer
+    queryset = herramienta_individual.objects.all()
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        tipo_id = self.request.query_params.get('id_tipo_herramienta')
+        if tipo_id:
+            try:
+                qs = qs.filter(id_tipo_herramienta_id=int(tipo_id))
+            except ValueError:
+                pass
+        return qs

@@ -12,9 +12,48 @@ from .models import (
 
 
 class ReservaSerializer(serializers.ModelSerializer):
+    herramientas = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=herramienta_individual.objects.all(),
+        required=False,
+    )
+    herramientas_detalle = HerramientaIndividualSerializer(source='herramientas', many=True, read_only=True)
+
     class Meta:
         model = reserva
-        fields = '__all__'
+        fields = [
+            'id_reserva',
+            'fecha_reserva',
+            'fecha_inicio_reserva',
+            'fecha_fin_reserva',
+            'estado_reserva',
+            'id_usuario',
+            'id_tipo_herramienta',
+            'herramientas',
+            'herramientas_detalle',
+        ]
+
+    def _get_tipo_id(self):
+        if self.instance and getattr(self.instance, 'id_tipo_herramienta_id', None):
+            return self.instance.id_tipo_herramienta_id
+        data = getattr(self, 'initial_data', None)
+        if data:
+            tipo_val = data.get('id_tipo_herramienta') or data.get('id_tipo_herramienta_id')
+            try:
+                return int(tipo_val)
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def validate_herramientas(self, herramientas):
+        tipo_id = self._get_tipo_id()
+        if herramientas and not tipo_id:
+            raise serializers.ValidationError('Debes indicar id_tipo_herramienta antes de asignar herramientas.')
+        if tipo_id:
+            for herramienta in herramientas:
+                if herramienta.id_tipo_herramienta_id != tipo_id:
+                    raise serializers.ValidationError('Todas las herramientas deben pertenecer al tipo seleccionado.')
+        return herramientas
 
 
 class PrestamoSerializer(serializers.ModelSerializer):
@@ -43,6 +82,28 @@ class PrestamoSerializer(serializers.ModelSerializer):
             'herramientas_detalle',
             'esta_vencido',
         ]
+
+    def _get_tipo_id(self):
+        if self.instance and getattr(self.instance, 'id_tipo_herramienta_id', None):
+            return self.instance.id_tipo_herramienta_id
+        data = getattr(self, 'initial_data', None)
+        if data:
+            tipo_val = data.get('id_tipo_herramienta') or data.get('id_tipo_herramienta_id')
+            try:
+                return int(tipo_val)
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def validate_herramientas(self, herramientas):
+        tipo_id = self._get_tipo_id()
+        if herramientas and not tipo_id:
+            raise serializers.ValidationError('Debes indicar id_tipo_herramienta antes de asignar herramientas.')
+        if tipo_id:
+            for herramienta in herramientas:
+                if herramienta.id_tipo_herramienta_id != tipo_id:
+                    raise serializers.ValidationError('Todas las herramientas deben pertenecer al tipo seleccionado.')
+        return herramientas
 
     def get_esta_vencido(self, obj):
         return (
