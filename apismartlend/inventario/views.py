@@ -9,11 +9,13 @@ from .models import (
     categoria_herramienta,
     tipo_herramienta,
     herramienta_individual,
+    historial_herramienta,
 )
 from .serializers import (
     CategoriaHerramientaSerializer,
     TipoHerramientaSerializer,
     HerramientaIndividualSerializer,
+    HistorialHerramientaSerializer,
 )
 
 
@@ -106,3 +108,23 @@ class HerramientaIndividualViewSet(viewsets.ModelViewSet):
         if self.request.query_params.get('solo_disponibles') == 'true':
             qs = qs.filter(esta_en_prestamo_activo=False)
         return qs
+
+
+class HistorialHerramientaViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = HistorialHerramientaSerializer
+    queryset = historial_herramienta.objects.select_related(
+        'herramienta',
+        'herramienta__id_tipo_herramienta',
+        'prestamo',
+        'usuario',
+    ).all()
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        herramienta_id = self.request.query_params.get('herramienta')
+        prestamo_id = self.request.query_params.get('prestamo')
+        if herramienta_id:
+            qs = qs.filter(herramienta_id=herramienta_id)
+        if prestamo_id:
+            qs = qs.filter(prestamo_id=prestamo_id)
+        return qs.order_by('-registrada_en')
