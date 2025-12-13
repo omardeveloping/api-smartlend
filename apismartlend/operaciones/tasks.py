@@ -7,7 +7,39 @@ from django.utils import timezone
 from operaciones.models import alerta, prestamo
 from usuarios.models import DirectorCarrera
 
+@shared_task
+def expirar_prestamo_pendiente(prestamo_id):
+    """
+    Marca como Expirado un préstamo pendiente si siguen pasando 30 minutos sin entrega.
+    Libera las herramientas asignadas para que vuelvan a estar disponibles.
+    """
+    try:
+        loan = prestamo.objects.prefetch_related('herramientas', 'tipos_prestamo__tipo_herramienta').get(pk=prestamo_id)
+    except prestamo.DoesNotExist:
+        return {'status': 'not_found'}
 
+    if loan.estado_prestamo != prestamo.EstadoPrestamo.PENDIENTE:
+        return {'status': 'no_change'}
+
+    with transaction.atomic():
+        loan.estado_prestamo = prestamo.EstadoPrestamo.EXPIRADO
+        loan.save(update_fields=['estado_prestamo'])
+
+        # liberar reservas virtuales
+        for tp in loan.tipos_prestamo.all():
+            if tp.tipo_herramienta:
+                tp.tipo_herramienta.ajustar_reserva(-tp.cantidad)
+
+        herramientas = list(loan.herramientas.all())
+        for herramienta in herramientas:
+            if not herramienta.disponible:
+                herramienta.disponible = True
+                herramienta.save(update_fields=['disponible'])
+
+    return {'status': 'expired', 'herramientas_liberadas': len(herramientas)}
+
+
+### Tengo que echarle una mirada a esto después de tener todo lo demás listo. (Aprendizaje para el futuro)
 @shared_task
 def ban_overdue_prestamos():
     """
@@ -26,6 +58,7 @@ def ban_overdue_prestamos():
         ).prefetch_related(
             'herramientas',
             'herramientas__id_tipo_herramienta',
+            'tipos_prestamo__tipo_herramienta',
         )
         .filter(
             fecha_devolucion_real__isnull=True,
@@ -85,8 +118,10 @@ def ban_overdue_prestamos():
                     getattr(h.id_tipo_herramienta, 'nombre', None) for h in herramientas
                 }
                 herramienta_nombre = ', '.join(sorted(filter(None, tipos_herramienta)))
-                if not herramienta_nombre and loan.id_tipo_herramienta_id:
-                    herramienta_nombre = getattr(loan.id_tipo_herramienta, 'nombre', None)
+                if not herramienta_nombre:
+                    tipos = loan.tipos_prestamo.select_related('tipo_herramienta').all()
+                    nombres = [t.tipo_herramienta.nombre for t in tipos if t.tipo_herramienta]
+                    herramienta_nombre = ', '.join(sorted(set(nombres)))
                 detalle_herramientas = f'Herramientas: {herramientas_codigos}.\n' if herramientas_codigos else ''
                 subject = 'Recuerda devolver tu préstamo vencido'
                 body = (
