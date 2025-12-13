@@ -5,6 +5,7 @@ from .views import (
     CarreraViewSet,
     DirectorCarreraViewSet,
     LoginBodegueroView,
+    LoginUsuarioView,
     RolUsuarioViewSet,
     UsuarioViewSet,
     login_face,
@@ -22,4 +23,5 @@ urlpatterns = [
     path('auth/register-face/', register_face, name='register-face'),
     path('auth/login/', login_face, name='login-face'),
     path('auth/login-bodeguero/', LoginBodegueroView.as_view(), name='login-bodeguero'),
+    path('auth/login-usuario/', LoginUsuarioView.as_view(), name='login-usuario'),
 ]

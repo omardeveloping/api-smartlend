@@ -96,6 +96,47 @@ class LoginBodegueroView(generics.GenericAPIView):
             status=status.HTTP_200_OK,
         )
 
+
+class LoginUsuarioView(generics.GenericAPIView):
+    """
+    Login genérico para pruebas (cualquier rol). Solo requiere correo y password.
+    """
+    permission_classes = [AllowAny]
+    serializer_class = LoginBodegueroSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        correo = serializer.validated_data['correo']
+        password = serializer.validated_data['password']
+
+        user = authenticate(request, username=correo, password=password)
+        if user is None:
+            return Response({'error': 'Credenciales inválidas'}, status=status.HTTP_401_UNAUTHORIZED)
+        if not user.is_active:
+            return Response({'error': 'Usuario inactivo'}, status=status.HTTP_403_FORBIDDEN)
+        if user.esta_baneado:
+            return Response(
+                {
+                    'error': 'BANNED: préstamo vencido por más de 20 días. Se notificó al director de carrera.',
+                    'director_correo': _director_email(user),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return Response(
+            {
+                'success': True,
+                'usuario_id': user.id,
+                'correo': user.correo,
+                'nombres': user.nombres,
+                'apellidos': user.apellidos,
+                'rol': user.id_rol.nombre if user.id_rol else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 @api_view(['GET', 'POST'])
 def register_face(request):
     if request.method == 'GET':
