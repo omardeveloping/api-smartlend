@@ -24,8 +24,19 @@ done
 # Aplica migraciones pendientes
 python manage.py migrate --noinput
 
-# Recopila estáticos (si necesitas tenerlos locales)
-python manage.py collectstatic --noinput
+cmd="${1:-}"
 
-# Lanza Gunicorn con los argumentos que quieras
-exec gunicorn --bind 0.0.0.0:8000 --workers 3 apismartlend.wsgi:application
+# Si el comando solicitado es celery (worker/beat), ejecútalo directamente
+if [[ "$cmd" == "celery" ]]; then
+  shift
+  exec celery "$@"
+fi
+
+# Si no hay comando (servicio web) o es gunicorn, recopila estáticos y arranca web
+if [[ -z "$cmd" || "$cmd" == "gunicorn" ]]; then
+  python manage.py collectstatic --noinput
+  exec gunicorn --bind 0.0.0.0:8000 --workers 3 apismartlend.wsgi:application
+fi
+
+# Para cualquier otro comando, simplemente ejecútalo
+exec "$@"
