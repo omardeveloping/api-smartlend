@@ -206,3 +206,13 @@ class AlertaSerializer(serializers.ModelSerializer):
             'resuelta_en',
             'archivada',
         ]
+        read_only_fields = [
+            'id_alerta',
+            'prestamo',
+            'prestamo_detalle',
+            'mensaje',
+            'criticidad',
+            'creada_en',
+            'resuelta',
+            'resuelta_en',
+        ]

@@ -2,7 +2,7 @@ from collections import Counter
 
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import viewsets
+from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -230,15 +230,16 @@ class PrestamoViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class AlertasViewSet(viewsets.ReadOnlyModelViewSet):
+class AlertasViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = AlertaSerializer
 
     def get_queryset(self):
         qs = alerta.objects.all()
-        if getattr(self, 'action', None) == 'no_archivadas':
+        action = getattr(self, 'action', None)
+        if action == 'no_archivadas':
             qs = qs.filter(archivada=False)
         # Optional: filter only unresolved alerts with ?solo_pendientes=true
-        if self.request.query_params.get('solo_pendientes') == 'true':
+        if action in ('list', 'no_archivadas') and self.request.query_params.get('solo_pendientes') == 'true':
             qs = qs.filter(resuelta=False)
         return qs
 
