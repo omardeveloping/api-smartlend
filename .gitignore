@@ -214,3 +214,6 @@ apismartlend/compose.yml
 default.conf
 nginx/default.conf
 apismartlend/nginx/default.conf
+celerybeat-schedule*
+apismartlend/celerybeat-schedule-shm
+apismartlend/celerybeat-schedule-wal

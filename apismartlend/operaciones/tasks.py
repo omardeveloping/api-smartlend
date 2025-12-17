@@ -63,6 +63,10 @@ def ban_overdue_prestamos():
         .filter(
             fecha_devolucion_real__isnull=True,
             fecha_devolucion_esperada__lt=now,
+            estado_prestamo__in=[
+                prestamo.EstadoPrestamo.ENTREGADO,
+                prestamo.EstadoPrestamo.VENCIDO,
+            ],
         )
     )
 
