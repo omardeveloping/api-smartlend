@@ -204,4 +204,5 @@ class AlertaSerializer(serializers.ModelSerializer):
             'creada_en',
             'resuelta',
             'resuelta_en',
+            'archivada',
         ]

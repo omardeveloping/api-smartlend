@@ -137,6 +137,7 @@ class alerta(models.Model):
     creada_en = models.DateTimeField(auto_now_add=True)
     resuelta = models.BooleanField(default=False)
     resuelta_en = models.DateTimeField(null=True, blank=True)
+    archivada = models.BooleanField(default=False)
 
     def __str__(self):
         return f'Alerta prestamo {self.prestamo_id}'

@@ -235,10 +235,16 @@ class AlertasViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = alerta.objects.all()
+        if getattr(self, 'action', None) == 'no_archivadas':
+            qs = qs.filter(archivada=False)
         # Optional: filter only unresolved alerts with ?solo_pendientes=true
         if self.request.query_params.get('solo_pendientes') == 'true':
             qs = qs.filter(resuelta=False)
         return qs
+
+    @action(detail=False, methods=['get'], url_path='no-archivadas')
+    def no_archivadas(self, request, *args, **kwargs):
+        return self.list(request, *args, **kwargs)
 
     def list(self, request, *args, **kwargs):
         now = timezone.now()
