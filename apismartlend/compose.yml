@@ -1,0 +1,104 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USERNAME}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      TZ: America/Santiago
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env
+
+  django-web:
+    build: .
+    container_name: django-web
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DEBUG: ${DEBUG}
+      DJANGO_LOGLEVEL: ${DJANGO_LOGLEVEL}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+      DATABASE_ENGINE: ${DATABASE_ENGINE}
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_USERNAME: ${DATABASE_USERNAME}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_HOST: ${DATABASE_HOST}
+      DATABASE_PORT: ${DATABASE_PORT}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL}
+      TZ: America/Santiago
+    env_file:
+      - .env
+    networks:
+      - default
+
+  celery-worker:
+    build: .
+    container_name: celery-worker
+    command: celery -A apismartlend worker -l info
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      TZ: America/Santiago
+    networks:
+      - default
+
+  celery-beat:
+    build: .
+    container_name: celery-beat
+    # Guarda el archivo de schedule en /tmp para evitar problemas de permisos con el volumen del código
+    command: celery -A apismartlend beat -l info --schedule /tmp/celerybeat-schedule
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      TZ: America/Santiago
+    networks:
+      - default
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    environment:
+      TZ: America/Santiago
+    networks:
+      - default
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:
+  redis_data:
+
+networks:
+  default:
+    driver: bridge
