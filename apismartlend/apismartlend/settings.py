@@ -17,6 +17,18 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def env_list(name: str, default: str = "") -> list[str]:
+    """Read comma-separated env var into a clean list."""
+    return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -24,14 +36,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get("SECRET_KEY", default="django-insecure-@i#o!47x2ygm)yu$(a_9+a(&u_dy2$lcb1xw@x*&xqpul=7y-*")
 FACE_ENCRYPTION_KEY = os.environ.get("FACE_ENCRYPTION_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = bool(os.environ.get("DEBUG", default=1))
+DEBUG = env_bool("DEBUG", True)
 
-ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS","127.0.0.1").split(",")
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost")
 
-CORS_ALLOWED_ORIGIN_REGEXES = [
+# You can use exact origins and/or regex origins from environment.
+CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
+
+CORS_ALLOWED_ORIGIN_REGEXES = env_list(
+    "CORS_ALLOWED_ORIGIN_REGEXES",
     r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
-    r"^https?://72\.60\.167\.16(:\d+)?$",
-]
+)
+CORS_ALLOW_CREDENTIALS = env_bool("CORS_ALLOW_CREDENTIALS", True)
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 
 
 # Application definition
