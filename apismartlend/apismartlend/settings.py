@@ -38,7 +38,12 @@ FACE_ENCRYPTION_KEY = os.environ.get("FACE_ENCRYPTION_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool("DEBUG", True)
 
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost")
+_allowed_hosts_raw = (
+    os.environ.get("DJANGO_ALLOWED_HOSTS")
+    or os.environ.get("ALLOWED_HOSTS")
+    or "127.0.0.1,localhost"
+)
+ALLOWED_HOSTS = [item.strip() for item in _allowed_hosts_raw.split(",") if item.strip()]
 
 # You can use exact origins and/or regex origins from environment.
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
