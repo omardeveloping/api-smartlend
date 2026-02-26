@@ -1,0 +1,39 @@
+# VCS
+.git
+.gitignore
+
+# Python cache / virtualenv
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.venv/
+venv/
+
+# Local env / editor
+.env
+.env.*
+.vscode/
+.idea/
+
+# Runtime/generated artifacts
+media/
+staticfiles/
+celerybeat-schedule*
+*.log
+*.sqlite3
+*.db
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+
+# OS files
+.DS_Store
+Thumbs.db
