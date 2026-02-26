@@ -14,6 +14,7 @@ services:
       - .env
 
   django-web:
+    image: smartlend-backend:latest
     build: .
     container_name: django-web
     depends_on:
@@ -52,7 +53,7 @@ services:
       - default
 
   celery-worker:
-    build: .
+    image: smartlend-backend:latest
     container_name: celery-worker
     command: celery -A apismartlend worker -l info
     depends_on:
@@ -68,7 +69,7 @@ services:
       - default
 
   celery-beat:
-    build: .
+    image: smartlend-backend:latest
     container_name: celery-beat
     # Guarda el archivo de schedule en /tmp para evitar problemas de permisos con el volumen del código
     command: celery -A apismartlend beat -l info --schedule /tmp/celerybeat-schedule
