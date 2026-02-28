@@ -5,31 +5,18 @@ from django.utils import timezone
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework import status
 
 from inventario.models import herramienta_individual, historial_herramienta, tipo_herramienta
 
 from .models import (
     alerta,
     prestamo,
-    reserva,
 )
 from .serializers import (
     AlertaSerializer,
     PrestamoSerializer,
-    ReservaSerializer,
 )
-
-
-class ReservaViewSet(viewsets.ModelViewSet):
-    queryset = reserva.objects.all().prefetch_related(
-        'herramientas',
-        'herramientas__id_tipo_herramienta',
-    )
-    serializer_class = ReservaSerializer
-
-    def get_serializer_context(self):
-        ctx = super().get_serializer_context()
-        return ctx
 
 
 class PrestamoViewSet(viewsets.ModelViewSet):
@@ -39,6 +26,20 @@ class PrestamoViewSet(viewsets.ModelViewSet):
         'tipos_prestamo__tipo_herramienta',
     )
     serializer_class = PrestamoSerializer
+
+    @action(detail=False, methods=['post'], url_path='reserva-docente')
+    def reserva_docente(self, request):
+        serializer = self.get_serializer(
+            data=request.data,
+            context={
+                **self.get_serializer_context(),
+                'require_reserva_docente': True,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @action(detail=False, methods=['get'])
     def vencidos(self, request):

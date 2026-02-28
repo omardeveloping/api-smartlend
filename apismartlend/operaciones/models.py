@@ -1,5 +1,6 @@
 import random
 import string
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -7,22 +8,6 @@ from django.db import models
 from django.utils import timezone
 # ### 1. IMPORTANTE: Importamos el modelo de inventario para poder usar sus opciones (Estados de herramienta)
 from inventario.models import herramienta_individual
-
-### Todavía no se trabaja con reservas, sólo con préstamos
-class reserva(models.Model):
-    id_reserva = models.AutoField(primary_key=True)
-    fecha_reserva = models.DateTimeField()
-    fecha_inicio_reserva = models.DateTimeField()
-    fecha_fin_reserva = models.DateTimeField()
-    estado_reserva = models.CharField(max_length=50)
-    id_usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    id_tipo_herramienta = models.ForeignKey('inventario.tipo_herramienta', on_delete=models.CASCADE)
-    herramientas = models.ManyToManyField(
-        'inventario.herramienta_individual',
-        blank=True,
-        related_name='reservas_asociadas',
-    )
-    herramientas = models.ManyToManyField('inventario.herramienta_individual', related_name='reservas_asociadas')
 
 class prestamoHerramienta(models.Model):
     id_prestamo = models.ForeignKey('prestamo', on_delete=models.CASCADE, related_name='detalle_herramientas')
@@ -109,14 +94,30 @@ class prestamo(models.Model):
                     for entry in tipos_list
                 ) or '- (Sin tipos de herramienta asignados aún)'
 
+            ahora = timezone.now()
+            inicio_prestamo = self.fecha_prestamo or ahora
+            retiro_programado = inicio_prestamo > (ahora + timedelta(minutes=5))
+            if retiro_programado:
+                inicio_local = timezone.localtime(inicio_prestamo)
+                instrucciones = (
+                    "Tu retiro fue reservado para "
+                    f"{inicio_local:%d-%m-%Y a las %H:%M}.\n"
+                    "Dirígete al pañol y presenta este código dentro de los 30 minutos posteriores a esa hora.\n"
+                    "Si no retiras tus herramientas dentro de ese plazo, el préstamo expirará automáticamente."
+                )
+            else:
+                instrucciones = (
+                    "Dirígete al pañol y presenta este código para recibir tus insumos en los próximos 30 minutos.\n"
+                    "Si no retiras tus herramientas dentro de ese plazo, el préstamo expirará automáticamente."
+                )
+
             cuerpo = (
                 f"Hola {self.id_usuario.nombres} {self.id_usuario.apellidos}!\n"
                 "Este es el código de tu préstamo en Smartlend:\n\n"
                 f" {self.codigo}\n\n"
                 "Solicitaste las siguientes herramientas:\n"
                 f"{detalle_tipos}\n\n"
-                "Dirígete al pañol y presenta este código para recibir tus insumos en los próximos 30 minutos.\n"
-                "Si no retiras tus herramientas dentro de ese plazo, el préstamo expirará automáticamente."
+                f"{instrucciones}"
             )
             send_mail(
                 subject="Tu código de préstamo en Smartlend",

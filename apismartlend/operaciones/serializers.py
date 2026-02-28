@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
@@ -9,31 +12,13 @@ from .models import (
     alerta,
     prestamo,
     PrestamoTipoHerramienta,
-    reserva,
 )
 from .tasks import expirar_prestamo_pendiente
 
-### Reserva todavía no está listo, no tiene ninguna logica especial más allá del CRUD básico.
-class ReservaSerializer(serializers.ModelSerializer):
-    herramientas = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-    herramientas_detalle = HerramientaIndividualSerializer(source='herramientas', many=True, read_only=True)
-
-    class Meta:
-        model = reserva
-        fields = [
-            'id_reserva',
-            'fecha_reserva',
-            'fecha_inicio_reserva',
-            'fecha_fin_reserva',
-            'estado_reserva',
-            'id_usuario',
-            'id_tipo_herramienta',
-            'herramientas',
-            'herramientas_detalle',
-        ]
-
-
 class PrestamoSerializer(serializers.ModelSerializer):
+    fecha_prestamo = serializers.DateTimeField(required=False)
+    fecha_devolucion_esperada = serializers.DateTimeField(required=False)
+    fecha_inicio_reserva = serializers.DateTimeField(write_only=True, required=False)
     esta_vencido = serializers.SerializerMethodField()
     # JSONField renders as a textarea in the browsable API, easier to test.
     tipos = serializers.JSONField(write_only=True, required=False)
@@ -47,6 +32,7 @@ class PrestamoSerializer(serializers.ModelSerializer):
             'id_prestamo',
             'fecha_prestamo',
             'fecha_devolucion_esperada',
+            'fecha_inicio_reserva',
             'fecha_devolucion_real',
             'estado_prestamo',
             'estado_devolucion',
@@ -59,6 +45,88 @@ class PrestamoSerializer(serializers.ModelSerializer):
             'tipos_detalle',
             'esta_vencido',
         ]
+
+    @staticmethod
+    def _is_docente(usuario):
+        return bool(
+            usuario
+            and getattr(usuario, 'id_rol', None)
+            and getattr(usuario.id_rol, 'nombre', '').strip().lower() == 'docente'
+        )
+
+    def _validate_item_limit(self, usuario, tipos_list):
+        if self._is_docente(usuario):
+            return
+
+        max_items = getattr(settings, 'SMARTLEND_MAX_ITEMS_PER_LOAN', None)
+        if max_items in (None, ''):
+            return
+
+        total_items = sum(entry['cantidad'] for entry in tipos_list)
+        if total_items > int(max_items):
+            raise serializers.ValidationError(
+                {'tipos': f'No puedes solicitar más de {max_items} ítems por préstamo'}
+            )
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        require_reserva_docente = self.context.get('require_reserva_docente', False)
+
+        if self.instance is not None:
+            return attrs
+
+        usuario = attrs.get('id_usuario')
+        fecha_prestamo = attrs.get('fecha_prestamo')
+        fecha_inicio_reserva = attrs.get('fecha_inicio_reserva')
+        fecha_devolucion_esperada = attrs.get('fecha_devolucion_esperada')
+        today = timezone.localdate()
+
+        if require_reserva_docente and not self._is_docente(usuario):
+            raise serializers.ValidationError(
+                {'id_usuario': 'El endpoint de reserva docente solo acepta usuarios con rol Docente'}
+            )
+        if require_reserva_docente and fecha_inicio_reserva is None:
+            raise serializers.ValidationError(
+                {'fecha_inicio_reserva': 'Este campo es obligatorio para crear una reserva docente'}
+            )
+
+        if fecha_inicio_reserva is not None:
+            if not self._is_docente(usuario):
+                raise serializers.ValidationError(
+                    {'fecha_inicio_reserva': 'Solo los usuarios con rol Docente pueden reservar para mañana'}
+                )
+
+            if timezone.localdate(fecha_inicio_reserva) != today + timedelta(days=1):
+                raise serializers.ValidationError(
+                    {'fecha_inicio_reserva': 'La fecha de inicio de reserva debe corresponder al día de mañana'}
+                )
+
+            attrs['fecha_prestamo'] = fecha_inicio_reserva
+            fecha_prestamo = fecha_inicio_reserva
+            if fecha_devolucion_esperada is None:
+                attrs['fecha_devolucion_esperada'] = fecha_inicio_reserva + timedelta(days=1)
+                fecha_devolucion_esperada = attrs['fecha_devolucion_esperada']
+        elif fecha_prestamo is not None and timezone.localdate(fecha_prestamo) > today:
+            if not self._is_docente(usuario):
+                raise serializers.ValidationError(
+                    {'fecha_prestamo': 'Solo los usuarios con rol Docente pueden crear préstamos con inicio futuro'}
+                )
+            if timezone.localdate(fecha_prestamo) != today + timedelta(days=1):
+                raise serializers.ValidationError(
+                    {'fecha_prestamo': 'Los préstamos futuros solo se permiten para el día de mañana'}
+                )
+
+        if fecha_prestamo is None:
+            raise serializers.ValidationError({'fecha_prestamo': 'Este campo es obligatorio'})
+        if fecha_devolucion_esperada is None:
+            raise serializers.ValidationError({'fecha_devolucion_esperada': 'Este campo es obligatorio'})
+        if fecha_devolucion_esperada <= fecha_prestamo:
+            raise serializers.ValidationError(
+                {'fecha_devolucion_esperada': 'Debe ser posterior a la fecha de inicio del préstamo'}
+            )
+
+        return attrs
 
     def get_esta_vencido(self, obj):
         return (
@@ -141,9 +209,11 @@ class PrestamoSerializer(serializers.ModelSerializer):
 ### Sirve para crear y actualizar préstamos con lógica de asignación de herramientas
     def create(self, validated_data):
         tipos_raw = validated_data.pop('tipos', [])
+        validated_data.pop('fecha_inicio_reserva', None)
         tipos_list = self._validated_tipos(tipos_raw)
         if not tipos_list:
             raise serializers.ValidationError({'tipos': 'Debes indicar al menos un tipo_herramienta con cantidad'})
+        self._validate_item_limit(validated_data.get('id_usuario'), tipos_list)
         with transaction.atomic():
             self._ensure_stock(tipos_list)
             loan = super().create(validated_data)
@@ -151,7 +221,12 @@ class PrestamoSerializer(serializers.ModelSerializer):
                 self._reemplazar_tipos(loan, tipos_list)
                 self._ajustar_reserva(tipos_list, signo=1)
             # Programa expiración en 30 minutos si sigue pendiente
-            transaction.on_commit(lambda: expirar_prestamo_pendiente.apply_async(args=[loan.id_prestamo], countdown=30 * 60))
+            now = timezone.now()
+            segundos_hasta_inicio = max(int((loan.fecha_prestamo - now).total_seconds()), 0)
+            countdown = segundos_hasta_inicio + (30 * 60)
+            transaction.on_commit(
+                lambda: expirar_prestamo_pendiente.apply_async(args=[loan.id_prestamo], countdown=countdown)
+            )
             # Enviar correo con detalle de tipos
             transaction.on_commit(lambda: loan.enviar_correo_codigo(tipos_list))
         return loan
@@ -159,11 +234,13 @@ class PrestamoSerializer(serializers.ModelSerializer):
 ### Sirve para actualizar préstamos con lógica de reasignación de herramientas
     def update(self, instance, validated_data):
         tipos_raw = validated_data.pop('tipos', None)
+        validated_data.pop('fecha_inicio_reserva', None)
         previous_estado = instance.estado_prestamo
         with transaction.atomic():
             loan = super().update(instance, validated_data)
             if tipos_raw is not None:
                 tipos_list = self._validated_tipos(tipos_raw)
+                self._validate_item_limit(loan.id_usuario, tipos_list)
                 if loan.herramientas.exists():
                     raise serializers.ValidationError({'tipos': 'No puedes modificar tipos cuando ya hay herramientas asignadas'})
                 # liberar reserva previa
