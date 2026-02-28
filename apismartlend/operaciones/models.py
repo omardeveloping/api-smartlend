@@ -30,6 +30,12 @@ class prestamo(models.Model):
         VENCIDO = 'Vencido', 'Vencido'
         CANCELADO = 'Cancelado', 'Cancelado'
 
+    class EstadoTurnoPantalla(models.TextChoices):
+        EN_COLA = 'EnCola', 'En cola'
+        MOSTRADO = 'Mostrado', 'Mostrado'
+        SALTADO = 'Saltado', 'Saltado'
+        FUERA_DE_COLA = 'FueraDeCola', 'Fuera de cola'
+
     id_prestamo = models.AutoField(primary_key=True)
     fecha_prestamo = models.DateTimeField()
     fecha_devolucion_esperada = models.DateTimeField()
@@ -62,16 +68,45 @@ class prestamo(models.Model):
     herramientas = models.ManyToManyField('inventario.herramienta_individual', through=prestamoHerramienta, related_name='prestamos_asociados', blank=True, null=True)
     tipos_herramienta = models.ManyToManyField('inventario.tipo_herramienta', through=PrestamoTipoHerramienta, related_name='prestamos_tipo_herramienta')
     codigo = models.CharField(max_length=20, null=True, blank=True)
+    estado_turno_pantalla = models.CharField(
+        max_length=20,
+        choices=EstadoTurnoPantalla.choices,
+        default=EstadoTurnoPantalla.EN_COLA,
+    )
+    turno_mostrado_en = models.DateTimeField(null=True, blank=True)
+    turno_veces_mostrado = models.PositiveIntegerField(default=0)
 
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
+        update_fields = kwargs.get('update_fields')
         if not self.codigo and self.id_usuario_id:
             letras = ''.join(random.choices(string.ascii_uppercase, k=2))
             iniciales = f"{(self.id_usuario.nombres or '')[:1]}{(self.id_usuario.apellidos or '')[:1]}".upper()
             ahora = timezone.now()
             fecha_min = f"{ahora.day:02d}{ahora.month:02d}{ahora.minute:02d}"
             self.codigo = f"{letras}-{iniciales}{fecha_min}"
+            if update_fields is not None:
+                update_fields = set(update_fields)
+                update_fields.add('codigo')
+
+        if self.estado_prestamo != self.EstadoPrestamo.PENDIENTE:
+            if self.estado_turno_pantalla != self.EstadoTurnoPantalla.FUERA_DE_COLA:
+                self.estado_turno_pantalla = self.EstadoTurnoPantalla.FUERA_DE_COLA
+                if update_fields is not None:
+                    update_fields = set(update_fields)
+                    update_fields.add('estado_turno_pantalla')
+        elif not self.estado_turno_pantalla:
+            self.estado_turno_pantalla = self.EstadoTurnoPantalla.EN_COLA
+            if update_fields is not None:
+                update_fields = set(update_fields)
+                update_fields.add('estado_turno_pantalla')
+
+        if update_fields is not None:
+            kwargs['update_fields'] = list(update_fields)
         super().save(*args, **kwargs)
+
+    def esta_listo_para_turnero(self, now=None):
+        now = now or timezone.now()
+        return self.estado_prestamo == self.EstadoPrestamo.PENDIENTE and self.fecha_prestamo <= now
 
     def enviar_correo_codigo(self, tipos_list=None):
         """

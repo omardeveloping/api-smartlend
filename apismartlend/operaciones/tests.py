@@ -148,6 +148,94 @@ class PrestamoReservaDocenteTests(APITestCase):
         self.assertEqual(docente_response.status_code, status.HTTP_201_CREATED)
 
 
+class TurneroViewSetTests(APITestCase):
+    def setUp(self):
+        self.role = rol_usuarios.objects.create(
+            nombre='Alumno',
+            desc='Alumno',
+            permisos='prestamos',
+        )
+        self.usuario = Usuario.objects.create(
+            correo='turnos@example.com',
+            rut='33333333-3',
+            nombres='Grace',
+            apellidos='Hopper',
+            id_rol=self.role,
+        )
+        base = timezone.now()
+        self.pendiente_antiguo = prestamo.objects.create(
+            fecha_prestamo=base - timedelta(hours=2),
+            fecha_devolucion_esperada=base + timedelta(days=1),
+            estado_prestamo=prestamo.EstadoPrestamo.PENDIENTE,
+            id_usuario=self.usuario,
+            codigo='AA-GH1001',
+        )
+        self.pendiente_reciente = prestamo.objects.create(
+            fecha_prestamo=base - timedelta(hours=1),
+            fecha_devolucion_esperada=base + timedelta(days=1),
+            estado_prestamo=prestamo.EstadoPrestamo.PENDIENTE,
+            id_usuario=self.usuario,
+            codigo='BB-GH1002',
+        )
+        self.pendiente_futuro = prestamo.objects.create(
+            fecha_prestamo=base + timedelta(days=1),
+            fecha_devolucion_esperada=base + timedelta(days=2),
+            estado_prestamo=prestamo.EstadoPrestamo.PENDIENTE,
+            id_usuario=self.usuario,
+            codigo='DD-GH1004',
+        )
+        prestamo.objects.create(
+            fecha_prestamo=base - timedelta(hours=3),
+            fecha_devolucion_esperada=base + timedelta(days=1),
+            estado_prestamo=prestamo.EstadoPrestamo.ENTREGADO,
+            id_usuario=self.usuario,
+            codigo='CC-GH1003',
+        )
+
+    def test_actual_publico_muestra_un_solo_prestamo_sin_datos_sensibles(self):
+        response = self.client.get('/operaciones/api/turnero/actual/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['hay_turno'])
+        self.assertEqual(response.data['pendientes_listos'], 2)
+        self.assertEqual(response.data['turno']['codigo_publico'], 'AA-...1001')
+        self.assertEqual(set(response.data['turno'].keys()), {'codigo_publico', 'estado_prestamo'})
+
+        alias_response = self.client.get('/operaciones/api/prestamos/pantalla-turnos/')
+        self.assertEqual(alias_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(alias_response.data['turno']['codigo_publico'], 'AA-...1001')
+
+    def test_siguiente_saltea_turno_actual_y_muestra_el_siguiente(self):
+        self.client.get('/operaciones/api/turnero/actual/')
+
+        response = self.client.post('/operaciones/api/turnero/siguiente/', {}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['anterior']['codigo_publico'], 'AA-...1001')
+        self.assertEqual(response.data['actual']['codigo_publico'], 'BB-...1002')
+        self.pendiente_antiguo.refresh_from_db()
+        self.pendiente_reciente.refresh_from_db()
+        self.assertEqual(self.pendiente_antiguo.estado_turno_pantalla, prestamo.EstadoTurnoPantalla.SALTADO)
+        self.assertEqual(self.pendiente_reciente.estado_turno_pantalla, prestamo.EstadoTurnoPantalla.MOSTRADO)
+
+    def test_rellamar_vuelve_a_poner_un_prestamo_saltado_en_pantalla(self):
+        self.client.get('/operaciones/api/turnero/actual/')
+        self.client.post('/operaciones/api/turnero/siguiente/', {}, format='json')
+
+        response = self.client.post(
+            '/operaciones/api/turnero/rellamar/',
+            {'prestamo_id': self.pendiente_antiguo.id_prestamo},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['actual']['codigo_publico'], 'AA-...1001')
+        self.pendiente_antiguo.refresh_from_db()
+        self.pendiente_reciente.refresh_from_db()
+        self.assertEqual(self.pendiente_antiguo.estado_turno_pantalla, prestamo.EstadoTurnoPantalla.MOSTRADO)
+        self.assertEqual(self.pendiente_reciente.estado_turno_pantalla, prestamo.EstadoTurnoPantalla.SALTADO)
+
+
 class ReportesViewSetTests(APITestCase):
     def setUp(self):
         self.role = rol_usuarios.objects.create(

@@ -267,6 +267,44 @@ class PrestamoSerializer(serializers.ModelSerializer):
         return loan
 
 
+class PrestamoTurnoPublicoSerializer(serializers.ModelSerializer):
+    codigo_publico = serializers.SerializerMethodField()
+
+    class Meta:
+        model = prestamo
+        fields = [
+            'codigo_publico',
+            'estado_prestamo',
+        ]
+
+    def get_codigo_publico(self, obj):
+        codigo = (obj.codigo or '').strip()
+        if not codigo:
+            return ''
+
+        prefijo, separador, resto = codigo.partition('-')
+        if not separador:
+            return codigo[-6:] if len(codigo) > 6 else codigo
+
+        sufijo = resto[-4:] if len(resto) >= 4 else resto
+        if not sufijo:
+            return prefijo
+        return f'{prefijo}-...{sufijo}'
+
+
+class PrestamoTurnoGestionSerializer(PrestamoTurnoPublicoSerializer):
+    class Meta(PrestamoTurnoPublicoSerializer.Meta):
+        fields = [
+            'id_prestamo',
+            'codigo_publico',
+            'estado_prestamo',
+            'estado_turno_pantalla',
+            'fecha_prestamo',
+            'turno_mostrado_en',
+            'turno_veces_mostrado',
+        ]
+
+
 class AlertaSerializer(serializers.ModelSerializer):
     prestamo_detalle = PrestamoSerializer(source='prestamo', read_only=True)
 

@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
@@ -19,7 +20,177 @@ from .models import (
 from .serializers import (
     AlertaSerializer,
     PrestamoSerializer,
+    PrestamoTurnoGestionSerializer,
+    PrestamoTurnoPublicoSerializer,
 )
+
+
+def _turnos_listos_queryset(now=None, for_update=False):
+    now = now or timezone.now()
+    queryset = prestamo.objects.filter(
+        estado_prestamo=prestamo.EstadoPrestamo.PENDIENTE,
+        fecha_prestamo__lte=now,
+    )
+    if for_update:
+        queryset = queryset.select_for_update()
+    return queryset
+
+
+def _normalizar_turnero(now=None):
+    now = now or timezone.now()
+    prestamo.objects.exclude(
+        estado_prestamo=prestamo.EstadoPrestamo.PENDIENTE,
+    ).exclude(
+        estado_turno_pantalla=prestamo.EstadoTurnoPantalla.FUERA_DE_COLA,
+    ).update(estado_turno_pantalla=prestamo.EstadoTurnoPantalla.FUERA_DE_COLA)
+    prestamo.objects.filter(
+        estado_prestamo=prestamo.EstadoPrestamo.PENDIENTE,
+        fecha_prestamo__gt=now,
+        estado_turno_pantalla=prestamo.EstadoTurnoPantalla.MOSTRADO,
+    ).update(estado_turno_pantalla=prestamo.EstadoTurnoPantalla.EN_COLA)
+
+
+def _marcar_turno_mostrado(loan, now=None):
+    if loan is None:
+        return None
+
+    now = now or timezone.now()
+    loan.estado_turno_pantalla = prestamo.EstadoTurnoPantalla.MOSTRADO
+    loan.turno_mostrado_en = now
+    loan.turno_veces_mostrado = (loan.turno_veces_mostrado or 0) + 1
+    loan.save(
+        update_fields=[
+            'estado_turno_pantalla',
+            'turno_mostrado_en',
+            'turno_veces_mostrado',
+        ]
+    )
+    return loan
+
+
+def _obtener_turno_actual():
+    now = timezone.now()
+    with transaction.atomic():
+        _normalizar_turnero(now)
+        mostrados = list(
+            _turnos_listos_queryset(now=now, for_update=True).filter(
+                estado_turno_pantalla=prestamo.EstadoTurnoPantalla.MOSTRADO,
+            ).order_by('turno_mostrado_en', 'fecha_prestamo', 'id_prestamo')
+        )
+        if mostrados:
+            actual = mostrados[0]
+            for extra in mostrados[1:]:
+                extra.estado_turno_pantalla = prestamo.EstadoTurnoPantalla.SALTADO
+                extra.save(update_fields=['estado_turno_pantalla'])
+            return actual
+
+        siguiente = _turnos_listos_queryset(now=now, for_update=True).filter(
+            estado_turno_pantalla=prestamo.EstadoTurnoPantalla.EN_COLA,
+        ).order_by('fecha_prestamo', 'id_prestamo').first()
+        return _marcar_turno_mostrado(siguiente, now=now)
+
+
+def _payload_turno_publico():
+    now = timezone.now()
+    actual = _obtener_turno_actual()
+    pendientes_listos = _turnos_listos_queryset(now=now).count()
+    return {
+        'hay_turno': actual is not None,
+        'turno': PrestamoTurnoPublicoSerializer(actual).data if actual else None,
+        'pendientes_listos': pendientes_listos,
+    }
+
+
+class TurneroViewSet(viewsets.ViewSet):
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
+    def actual(self, request):
+        return Response(_payload_turno_publico(), status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'])
+    def cola(self, request):
+        now = timezone.now()
+        _normalizar_turnero(now)
+        queue = _turnos_listos_queryset(now=now).filter(
+            estado_turno_pantalla__in=[
+                prestamo.EstadoTurnoPantalla.EN_COLA,
+                prestamo.EstadoTurnoPantalla.MOSTRADO,
+                prestamo.EstadoTurnoPantalla.SALTADO,
+            ]
+        ).order_by('fecha_prestamo', 'id_prestamo')
+        data = PrestamoTurnoGestionSerializer(queue, many=True).data
+        return Response(
+            {
+                'total': len(data),
+                'pendientes': data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['post'])
+    def siguiente(self, request):
+        now = timezone.now()
+        with transaction.atomic():
+            _normalizar_turnero(now)
+            actual = _turnos_listos_queryset(now=now, for_update=True).filter(
+                estado_turno_pantalla=prestamo.EstadoTurnoPantalla.MOSTRADO,
+            ).order_by('turno_mostrado_en', 'fecha_prestamo', 'id_prestamo').first()
+            if actual is not None:
+                actual.estado_turno_pantalla = prestamo.EstadoTurnoPantalla.SALTADO
+                actual.save(update_fields=['estado_turno_pantalla'])
+
+            siguiente = _turnos_listos_queryset(now=now, for_update=True).filter(
+                estado_turno_pantalla=prestamo.EstadoTurnoPantalla.EN_COLA,
+            ).order_by('fecha_prestamo', 'id_prestamo').first()
+            siguiente = _marcar_turno_mostrado(siguiente, now=now)
+
+        return Response(
+            {
+                'anterior': PrestamoTurnoGestionSerializer(actual).data if actual else None,
+                'actual': PrestamoTurnoGestionSerializer(siguiente).data if siguiente else None,
+                'pendientes_listos': _turnos_listos_queryset(now=timezone.now()).count(),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['post'])
+    def rellamar(self, request):
+        prestamo_id = request.data.get('prestamo_id')
+        if not prestamo_id:
+            return Response({'detail': 'prestamo_id es obligatorio'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            prestamo_id = int(prestamo_id)
+        except (TypeError, ValueError):
+            return Response({'detail': 'prestamo_id debe ser un entero válido'}, status=status.HTTP_400_BAD_REQUEST)
+
+        now = timezone.now()
+        with transaction.atomic():
+            _normalizar_turnero(now)
+            target = prestamo.objects.select_for_update().filter(pk=prestamo_id).first()
+            if target is None:
+                return Response({'detail': 'No se encontró el préstamo indicado'}, status=status.HTTP_404_NOT_FOUND)
+            if not target.esta_listo_para_turnero(now=now):
+                return Response(
+                    {'detail': 'Solo puedes rellamar préstamos pendientes cuya fecha de retiro ya comenzó'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            actual = _turnos_listos_queryset(now=now, for_update=True).filter(
+                estado_turno_pantalla=prestamo.EstadoTurnoPantalla.MOSTRADO,
+            ).order_by('turno_mostrado_en', 'fecha_prestamo', 'id_prestamo').first()
+            if actual is not None and actual.id_prestamo != target.id_prestamo:
+                actual.estado_turno_pantalla = prestamo.EstadoTurnoPantalla.SALTADO
+                actual.save(update_fields=['estado_turno_pantalla'])
+
+            target = _marcar_turno_mostrado(target, now=now)
+
+        return Response(
+            {
+                'actual': PrestamoTurnoGestionSerializer(target).data,
+                'pendientes_listos': _turnos_listos_queryset(now=timezone.now()).count(),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class PrestamoViewSet(viewsets.ModelViewSet):
@@ -61,6 +232,15 @@ class PrestamoViewSet(viewsets.ModelViewSet):
         )
         serializer = self.get_serializer(pendientes, many=True)
         return Response(serializer.data)
+
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path='pantalla-turnos',
+        permission_classes=[AllowAny],
+    )
+    def pantalla_turnos(self, request):
+        return Response(_payload_turno_publico(), status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'])
     def buscar(self, request):
