@@ -1,7 +1,10 @@
 from collections import Counter
+from io import BytesIO
 
+from django.http import HttpResponse
 from django.db import transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -273,3 +276,283 @@ class AlertasViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
         ).update(resuelta=True, resuelta_en=now)
 
         return super().list(request, *args, **kwargs)
+
+
+class ReportesViewSet(viewsets.ViewSet):
+    def _get_formato(self, request):
+        formato = request.query_params.get('formato', 'json').strip().lower()
+        if formato not in {'json', 'pdf', 'excel'}:
+            return None, Response(
+                {'detail': 'formato debe ser uno de: json, pdf, excel'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return formato, None
+
+    def _fecha_param(self, request, param_name):
+        raw = request.query_params.get(param_name)
+        if not raw:
+            return None, None
+        parsed = parse_date(raw)
+        if parsed is None:
+            return None, Response(
+                {'detail': f'{param_name} debe tener formato YYYY-MM-DD'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return parsed, None
+
+    def _json_or_file(self, request, title, columns, rows, filename_base, extra=None):
+        formato, error_response = self._get_formato(request)
+        if error_response is not None:
+            return error_response
+
+        payload = {
+            'reporte': filename_base,
+            'columnas': columns,
+            'total': len(rows),
+            'resultados': rows,
+        }
+        if extra:
+            payload.update(extra)
+
+        if formato == 'json':
+            return Response(payload, status=status.HTTP_200_OK)
+        if formato == 'pdf':
+            return self._build_pdf_response(title, columns, rows, filename_base)
+        return self._build_excel_response(title, columns, rows, filename_base)
+
+    def _build_pdf_response(self, title, columns, rows, filename_base):
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=landscape(A4),
+            leftMargin=12 * mm,
+            rightMargin=12 * mm,
+            topMargin=12 * mm,
+            bottomMargin=12 * mm,
+        )
+        styles = getSampleStyleSheet()
+        story = [
+            Paragraph(title, styles['Title']),
+            Spacer(1, 6 * mm),
+        ]
+        headers = [Paragraph(str(column), styles['Heading5']) for column in columns]
+        table_rows = [headers]
+        for row in rows:
+            table_rows.append([Paragraph(str(row.get(column, '')), styles['BodyText']) for column in columns])
+
+        if len(columns) <= 3:
+            col_width = 85 * mm
+        elif len(columns) <= 5:
+            col_width = 55 * mm
+        else:
+            col_width = 38 * mm
+        table = Table(table_rows, colWidths=[col_width] * len(columns), repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0F766E')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#CBD5E1')),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                    ('TOPPADDING', (0, 0), (-1, -1), 5),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        story.append(table)
+        doc.build(story)
+        response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename_base}.pdf"'
+        return response
+
+    def _build_excel_response(self, title, columns, rows, filename_base):
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font
+        except ImportError:
+            return Response(
+                {'detail': 'Falta la dependencia openpyxl para generar reportes Excel'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = title[:31]
+        sheet.append(columns)
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+        for row in rows:
+            sheet.append([row.get(column, '') for column in columns])
+        for column_cells in sheet.columns:
+            length = max(len(str(cell.value or '')) for cell in column_cells)
+            sheet.column_dimensions[column_cells[0].column_letter].width = min(length + 2, 40)
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename_base}.xlsx"'
+        return response
+
+    @action(detail=False, methods=['get'])
+    def inventario(self, request):
+        tipos = tipo_herramienta.objects.order_by('nombre')
+        rows = []
+        for tipo in tipos:
+            total = herramienta_individual.objects.filter(id_tipo_herramienta=tipo).count()
+            disponibles = herramienta_individual.objects.filter(
+                id_tipo_herramienta=tipo,
+                disponible=True,
+            ).count()
+            rows.append(
+                {
+                    'id_tipo_herramienta': tipo.id_tipo_herramienta,
+                    'nombre': tipo.nombre,
+                    'categoria': getattr(tipo.id_categoria, 'nombre', ''),
+                    'total_herramientas': total,
+                    'herramientas_disponibles': disponibles,
+                    'reservado': tipo.reservado,
+                    'stock': tipo.stock,
+                }
+            )
+        columns = [
+            'id_tipo_herramienta',
+            'nombre',
+            'categoria',
+            'total_herramientas',
+            'herramientas_disponibles',
+            'reservado',
+            'stock',
+        ]
+        return self._json_or_file(
+            request,
+            'Reporte de Inventario',
+            columns,
+            rows,
+            'reporte_inventario',
+        )
+
+    @action(detail=False, methods=['get'])
+    def prestamos(self, request):
+        fecha_desde, error_response = self._fecha_param(request, 'fecha_desde')
+        if error_response is not None:
+            return error_response
+        fecha_hasta, error_response = self._fecha_param(request, 'fecha_hasta')
+        if error_response is not None:
+            return error_response
+        if fecha_desde and fecha_hasta and fecha_desde > fecha_hasta:
+            return Response(
+                {'detail': 'fecha_desde no puede ser mayor que fecha_hasta'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = prestamo.objects.select_related(
+            'id_usuario',
+            'id_usuario__id_rol',
+        ).order_by('-fecha_prestamo')
+        if fecha_desde:
+            queryset = queryset.filter(fecha_prestamo__date__gte=fecha_desde)
+        if fecha_hasta:
+            queryset = queryset.filter(fecha_prestamo__date__lte=fecha_hasta)
+
+        rows = []
+        for loan in queryset:
+            rows.append(
+                {
+                    'id_prestamo': loan.id_prestamo,
+                    'codigo': loan.codigo or '',
+                    'usuario_id': loan.id_usuario_id,
+                    'usuario': f'{loan.id_usuario.nombres} {loan.id_usuario.apellidos}'.strip(),
+                    'correo': loan.id_usuario.correo,
+                    'estado_prestamo': loan.estado_prestamo,
+                    'fecha_prestamo': timezone.localtime(loan.fecha_prestamo).isoformat() if loan.fecha_prestamo else '',
+                    'fecha_devolucion_esperada': timezone.localtime(loan.fecha_devolucion_esperada).isoformat() if loan.fecha_devolucion_esperada else '',
+                    'fecha_devolucion_real': timezone.localtime(loan.fecha_devolucion_real).isoformat() if loan.fecha_devolucion_real else '',
+                }
+            )
+        columns = [
+            'id_prestamo',
+            'codigo',
+            'usuario_id',
+            'usuario',
+            'correo',
+            'estado_prestamo',
+            'fecha_prestamo',
+            'fecha_devolucion_esperada',
+            'fecha_devolucion_real',
+        ]
+        extra = {
+            'filtros': {
+                'fecha_desde': fecha_desde.isoformat() if fecha_desde else None,
+                'fecha_hasta': fecha_hasta.isoformat() if fecha_hasta else None,
+            }
+        }
+        return self._json_or_file(
+            request,
+            'Reporte de Prestamos',
+            columns,
+            rows,
+            'reporte_prestamos',
+            extra=extra,
+        )
+
+    @action(detail=False, methods=['get'])
+    def morosos(self, request):
+        now = timezone.now()
+        queryset = prestamo.objects.select_related(
+            'id_usuario',
+            'id_usuario__id_rol',
+            'id_usuario__id_carrera',
+        ).filter(
+            fecha_devolucion_real__isnull=True,
+            fecha_devolucion_esperada__lt=now,
+        ).order_by('fecha_devolucion_esperada')
+
+        rows = []
+        for loan in queryset:
+            rows.append(
+                {
+                    'id_prestamo': loan.id_prestamo,
+                    'codigo': loan.codigo or '',
+                    'usuario_id': loan.id_usuario_id,
+                    'usuario': f'{loan.id_usuario.nombres} {loan.id_usuario.apellidos}'.strip(),
+                    'correo': loan.id_usuario.correo,
+                    'rol': loan.id_usuario.id_rol.nombre if loan.id_usuario.id_rol else '',
+                    'carrera': getattr(loan.id_usuario.id_carrera, 'nombre', ''),
+                    'esta_baneado': loan.id_usuario.esta_baneado,
+                    'estado_prestamo': loan.estado_prestamo,
+                    'fecha_devolucion_esperada': timezone.localtime(loan.fecha_devolucion_esperada).isoformat(),
+                    'dias_atraso': max((now - loan.fecha_devolucion_esperada).days, 0),
+                }
+            )
+        columns = [
+            'id_prestamo',
+            'codigo',
+            'usuario_id',
+            'usuario',
+            'correo',
+            'rol',
+            'carrera',
+            'esta_baneado',
+            'estado_prestamo',
+            'fecha_devolucion_esperada',
+            'dias_atraso',
+        ]
+        return self._json_or_file(
+            request,
+            'Reporte de Usuarios Morosos',
+            columns,
+            rows,
+            'reporte_morosos',
+        )

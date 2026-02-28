@@ -6,8 +6,12 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+
+from operaciones.models import prestamo
+from operaciones.serializers import PrestamoSerializer
 
 from .face_utils import FaceProcessor
 from .models import DirectorCarrera, Usuario, carrera, rol_usuarios
@@ -52,8 +56,113 @@ class CarreraViewSet(viewsets.ModelViewSet):
 
 
 class UsuarioViewSet(viewsets.ModelViewSet):
-    queryset = Usuario.objects.all()
+    queryset = Usuario.objects.select_related('id_carrera', 'id_rol').all()
     serializer_class = UsuarioSerializer
+
+    def _serialize_prestamos(self, queryset):
+        prestamos_qs = queryset.prefetch_related(
+            'herramientas',
+            'herramientas__id_tipo_herramienta',
+            'tipos_prestamo__tipo_herramienta',
+        ).order_by('-fecha_prestamo')
+        return PrestamoSerializer(prestamos_qs, many=True, context=self.get_serializer_context()).data
+
+    @action(detail=True, methods=['get'], url_path='historial-prestamos')
+    def historial_prestamos(self, request, pk=None):
+        usuario = self.get_object()
+        historial = prestamo.objects.filter(
+            id_usuario=usuario,
+            estado_prestamo=prestamo.EstadoPrestamo.FINALIZADO,
+        )
+        data = self._serialize_prestamos(historial)
+        return Response(
+            {
+                'usuario': self.get_serializer(usuario).data,
+                'total': len(data),
+                'prestamos': data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['get'], url_path='prestamos-activos')
+    def prestamos_activos(self, request, pk=None):
+        usuario = self.get_object()
+        activos = prestamo.objects.filter(
+            id_usuario=usuario,
+            estado_prestamo__in=[
+                prestamo.EstadoPrestamo.PENDIENTE,
+                prestamo.EstadoPrestamo.ENTREGADO,
+                prestamo.EstadoPrestamo.VENCIDO,
+            ],
+        )
+        data = self._serialize_prestamos(activos)
+        return Response(
+            {
+                'usuario': self.get_serializer(usuario).data,
+                'total': len(data),
+                'prestamos': data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['get'], url_path='estado-bloqueo')
+    def estado_bloqueo(self, request, pk=None):
+        usuario = self.get_object()
+        activos_vencidos = prestamo.objects.filter(
+            id_usuario=usuario,
+            fecha_devolucion_real__isnull=True,
+            estado_prestamo=prestamo.EstadoPrestamo.VENCIDO,
+        ).count()
+        return Response(
+            {
+                'usuario_id': usuario.id,
+                'correo': usuario.correo,
+                'esta_baneado': usuario.esta_baneado,
+                'baneado_en': usuario.baneado_en,
+                'aviso_ban_enviado': usuario.aviso_ban_enviado,
+                'prestamos_vencidos_activos': activos_vencidos,
+                'director_correo': _director_email(usuario),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['get'], url_path='dashboard-bodeguero')
+    def dashboard_bodeguero(self, request, pk=None):
+        usuario = self.get_object()
+        historial = prestamo.objects.filter(
+            id_usuario=usuario,
+            estado_prestamo=prestamo.EstadoPrestamo.FINALIZADO,
+        )
+        activos = prestamo.objects.filter(
+            id_usuario=usuario,
+            estado_prestamo__in=[
+                prestamo.EstadoPrestamo.PENDIENTE,
+                prestamo.EstadoPrestamo.ENTREGADO,
+                prestamo.EstadoPrestamo.VENCIDO,
+            ],
+        )
+        historial_data = self._serialize_prestamos(historial)
+        activos_data = self._serialize_prestamos(activos)
+        return Response(
+            {
+                'usuario': self.get_serializer(usuario).data,
+                'estado_bloqueo': {
+                    'esta_baneado': usuario.esta_baneado,
+                    'baneado_en': usuario.baneado_en,
+                    'aviso_ban_enviado': usuario.aviso_ban_enviado,
+                    'director_correo': _director_email(usuario),
+                },
+                'historial_finalizados': {
+                    'total': len(historial_data),
+                    'prestamos': historial_data,
+                },
+                'prestamos_activos': {
+                    'total': len(activos_data),
+                    'prestamos': activos_data,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class LoginBodegueroView(generics.GenericAPIView):

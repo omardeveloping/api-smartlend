@@ -79,6 +79,10 @@
 - `usuarios/api/`
   - `roles`
   - `usuarios`
+  - `usuarios/{id}/historial-prestamos/`
+  - `usuarios/{id}/prestamos-activos/`
+  - `usuarios/{id}/estado-bloqueo/`
+  - `usuarios/{id}/dashboard-bodeguero/`
   - `carreras`
   - `directores`
 - `usuarios/auth/`
@@ -102,12 +106,16 @@
   - `prestamos/{id}/devolver_herramientas/`
   - `alertas`
   - `alertas/no-archivadas/`
+  - `reportes/inventario/`
+  - `reportes/prestamos/`
+  - `reportes/morosos/`
 
 ### Operational Notes
 - `Celery` is required for business correctness, not just background convenience. Without it, pending loans do not expire automatically and overdue loans do not become `Vencido` automatically.
 - `GET /operaciones/api/alertas/` has side effects: it creates or resolves alerts based on current overdue status.
 - `vencidos/` is date-driven: a loan can appear overdue by date even before the Celery task has updated its explicit state to `Vencido`.
 - There is no separate active `reserva` model in the current code path. Teacher reservations are implemented as future `prestamo` records through `prestamos/reserva-docente/`.
+- Report endpoints return JSON by default and can export files with `?formato=pdf` or `?formato=excel`.
 - There is a legacy `id_herramienta_individual` field in `prestamo`, but current multi-tool logic relies on `tipos_prestamo` plus the many-to-many assignment through `prestamoHerramienta`.
 - `tipo_herramienta.stock` and inventory summary views are related but not identical concepts; some views derive availability from active-loan annotations rather than directly from `reservado`.
 - If you change anything in loan behavior, review together:

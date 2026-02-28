@@ -146,3 +146,89 @@ class PrestamoReservaDocenteTests(APITestCase):
         self.assertEqual(non_docente_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('tipos', non_docente_response.data)
         self.assertEqual(docente_response.status_code, status.HTTP_201_CREATED)
+
+
+class ReportesViewSetTests(APITestCase):
+    def setUp(self):
+        self.role = rol_usuarios.objects.create(
+            nombre='Alumno',
+            desc='Alumno',
+            permisos='prestamos',
+        )
+        self.usuario = Usuario.objects.create(
+            correo='reportes@example.com',
+            rut='11112222-3',
+            nombres='Linus',
+            apellidos='Torvalds',
+            id_rol=self.role,
+        )
+        self.categoria = categoria_herramienta.objects.create(nombre='Electricas')
+        self.tipo = tipo_herramienta.objects.create(
+            nombre='Taladro',
+            descripcion='Taladro de banco',
+            id_categoria=self.categoria,
+        )
+        base = timezone.now()
+        herramienta_individual.objects.create(
+            codigo_barras='INV-1',
+            estado_herramienta=herramienta_individual.EstadoHerramienta.BUENO,
+            disponible=True,
+            fecha_adquisicion=base,
+            id_tipo_herramienta=self.tipo,
+        )
+        herramienta_individual.objects.create(
+            codigo_barras='INV-2',
+            estado_herramienta=herramienta_individual.EstadoHerramienta.BUENO,
+            disponible=False,
+            fecha_adquisicion=base,
+            id_tipo_herramienta=self.tipo,
+        )
+        self.tipo.recalcular_stock()
+        self.prestamo_finalizado = prestamo.objects.create(
+            fecha_prestamo=base - timedelta(days=5),
+            fecha_devolucion_esperada=base - timedelta(days=3),
+            fecha_devolucion_real=base - timedelta(days=2),
+            estado_prestamo=prestamo.EstadoPrestamo.FINALIZADO,
+            id_usuario=self.usuario,
+        )
+        self.prestamo_moroso = prestamo.objects.create(
+            fecha_prestamo=base - timedelta(days=4),
+            fecha_devolucion_esperada=base - timedelta(days=1),
+            estado_prestamo=prestamo.EstadoPrestamo.VENCIDO,
+            id_usuario=self.usuario,
+        )
+
+    def test_reporte_inventario_agrupa_por_tipo(self):
+        response = self.client.get('/operaciones/api/reportes/inventario/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['total'], 1)
+        self.assertEqual(response.data['resultados'][0]['nombre'], 'Taladro')
+        self.assertEqual(response.data['resultados'][0]['total_herramientas'], 2)
+
+    def test_reporte_prestamos_filtra_por_rango(self):
+        fecha = (timezone.now() - timedelta(days=5)).date().isoformat()
+        fecha_hasta = (timezone.now() - timedelta(days=5)).date().isoformat()
+
+        response = self.client.get(
+            f'/operaciones/api/reportes/prestamos/?fecha_desde={fecha}&fecha_hasta={fecha_hasta}'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {item['id_prestamo'] for item in response.data['resultados']}
+        self.assertIn(self.prestamo_finalizado.id_prestamo, ids)
+        self.assertNotIn(self.prestamo_moroso.id_prestamo, ids)
+
+    def test_reporte_morosos_retorna_usuario_asociado(self):
+        response = self.client.get('/operaciones/api/reportes/morosos/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['total'], 1)
+        self.assertEqual(response.data['resultados'][0]['usuario_id'], self.usuario.id)
+        self.assertEqual(response.data['resultados'][0]['correo'], self.usuario.correo)
+
+    def test_reporte_inventario_pdf_retorna_archivo(self):
+        response = self.client.get('/operaciones/api/reportes/inventario/?formato=pdf')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
