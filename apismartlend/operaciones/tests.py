@@ -198,12 +198,12 @@ class TurneroViewSetTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data['hay_turno'])
         self.assertEqual(response.data['pendientes_listos'], 2)
-        self.assertEqual(response.data['turno']['codigo_publico'], 'AA-GH1...')
+        self.assertEqual(response.data['turno']['codigo_publico'], 'AA-GH10...')
         self.assertEqual(set(response.data['turno'].keys()), {'codigo_publico', 'estado_prestamo'})
 
         alias_response = self.client.get('/operaciones/api/prestamos/pantalla-turnos/')
         self.assertEqual(alias_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(alias_response.data['turno']['codigo_publico'], 'AA-GH1...')
+        self.assertEqual(alias_response.data['turno']['codigo_publico'], 'AA-GH10...')
 
     def test_siguiente_saltea_turno_actual_y_muestra_el_siguiente(self):
         self.client.get('/operaciones/api/turnero/actual/')
@@ -211,8 +211,8 @@ class TurneroViewSetTests(APITestCase):
         response = self.client.post('/operaciones/api/turnero/siguiente/', {}, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['anterior']['codigo_publico'], 'AA-GH1...')
-        self.assertEqual(response.data['actual']['codigo_publico'], 'BB-GH1...')
+        self.assertEqual(response.data['anterior']['codigo_publico'], 'AA-GH10...')
+        self.assertEqual(response.data['actual']['codigo_publico'], 'BB-GH10...')
         self.pendiente_antiguo.refresh_from_db()
         self.pendiente_reciente.refresh_from_db()
         self.assertEqual(self.pendiente_antiguo.estado_turno_pantalla, prestamo.EstadoTurnoPantalla.SALTADO)
@@ -229,7 +229,7 @@ class TurneroViewSetTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['actual']['codigo_publico'], 'AA-GH1...')
+        self.assertEqual(response.data['actual']['codigo_publico'], 'AA-GH10...')
         self.pendiente_antiguo.refresh_from_db()
         self.pendiente_reciente.refresh_from_db()
         self.assertEqual(self.pendiente_antiguo.estado_turno_pantalla, prestamo.EstadoTurnoPantalla.MOSTRADO)

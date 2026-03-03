@@ -281,9 +281,9 @@ class PrestamoTurnoPublicoSerializer(serializers.ModelSerializer):
         codigo = (obj.codigo or '').strip()
         if not codigo:
             return ''
-        if len(codigo) <= 6:
+        if len(codigo) <= 7:
             return codigo
-        return f'{codigo[:6]}...'
+        return f'{codigo[:7]}...'
 
 
 class PrestamoTurnoGestionSerializer(PrestamoTurnoPublicoSerializer):
