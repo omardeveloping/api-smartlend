@@ -281,15 +281,9 @@ class PrestamoTurnoPublicoSerializer(serializers.ModelSerializer):
         codigo = (obj.codigo or '').strip()
         if not codigo:
             return ''
-
-        prefijo, separador, resto = codigo.partition('-')
-        if not separador:
-            return codigo[-6:] if len(codigo) > 6 else codigo
-
-        sufijo = resto[-4:] if len(resto) >= 4 else resto
-        if not sufijo:
-            return prefijo
-        return f'{prefijo}-...{sufijo}'
+        if len(codigo) <= 6:
+            return codigo
+        return f'{codigo[:6]}...'
 
 
 class PrestamoTurnoGestionSerializer(PrestamoTurnoPublicoSerializer):
