@@ -23,7 +23,7 @@ services:
     volumes:
       - .:/app
       - static_volume:/app/staticfiles
-      - media_volume:/app/media
+      - ${MEDIA_HOST_PATH:-./media}:/app/media
     ports:
       - "${DJANGO_HOST_PORT:-8001}:8000"
     environment:
@@ -101,7 +101,6 @@ services:
 volumes:
   postgres_data:
   static_volume:
-  media_volume:
   redis_data:
 
 networks:
