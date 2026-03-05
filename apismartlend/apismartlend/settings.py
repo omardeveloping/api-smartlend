@@ -202,7 +202,7 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_ACCEPT_CONTENT = ['json']
 
-# Always treat requests as plain HTTP; ignore proxy SSL headers
+# Trust TLS/host information provided by reverse proxy (e.g. nginx)
 SECURE_SSL_REDIRECT = False
-SECURE_PROXY_SSL_HEADER = None
-USE_X_FORWARDED_HOST = False
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
