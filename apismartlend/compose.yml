@@ -25,7 +25,7 @@ services:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
     ports:
-      - "8001:8000"
+      - "${DJANGO_HOST_PORT:-8001}:8000"
     environment:
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG}
