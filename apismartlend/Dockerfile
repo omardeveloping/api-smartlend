@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
     libgl1 \
     libglib2.0-0 \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy libraries from builder
@@ -54,9 +55,13 @@ COPY --chown=appuser:appuser . .
 
 # Keep entrypoint outside /app so compose bind mounts cannot override it.
 COPY --chown=appuser:appuser entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod 755 /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && \
+    chmod 755 /usr/local/bin/entrypoint.sh && \
+    mkdir -p /app/media /app/staticfiles && \
+    chown -R appuser:appuser /app /app/media /app/staticfiles
 
-USER appuser
+# Run entrypoint as root so it can fix bind-mount permissions, then drop to appuser.
+USER root
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

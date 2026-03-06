@@ -1,9 +1,50 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+
+APP_USER="${APP_USER:-appuser}"
+APP_GROUP="${APP_GROUP:-appuser}"
+
+run_cmd_as_appuser() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    gosu "${APP_USER}:${APP_GROUP}" "$@"
+  else
+    "$@"
+  fi
+}
+
+exec_as_appuser() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    exec gosu "${APP_USER}:${APP_GROUP}" "$@"
+  else
+    exec "$@"
+  fi
+}
+
+ensure_runtime_permissions() {
+  local target
+  for target in /app/media /app/media/tipos_herramienta /app/media/herramientas /app/staticfiles; do
+    mkdir -p "$target"
+  done
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chown -R "${APP_USER}:${APP_GROUP}" /app/media /app/staticfiles || true
+  fi
+
+  chmod -R ug+rwX /app/media /app/staticfiles || true
+
+  for target in /app/media /app/media/tipos_herramienta /app/media/herramientas /app/staticfiles; do
+    if ! run_cmd_as_appuser test -w "$target"; then
+      echo "Error: ${target} no es escribible por ${APP_USER}. Revisa permisos del volumen montado." >&2
+      exit 1
+    fi
+  done
+}
+
+ensure_runtime_permissions
 
 # Wait for database DNS/port before running migrations
 echo "Waiting for database ${DATABASE_HOST:-db}:${DATABASE_PORT:-5432}..."
-until python - <<'PYCODE'
+until run_cmd_as_appuser python - <<'PYCODE'
 import os, socket, sys
 host = os.environ.get("DATABASE_HOST", "db")
 port = int(os.environ.get("DATABASE_PORT", "5432"))
@@ -22,21 +63,21 @@ do
 done
 
 # Aplica migraciones pendientes
-python manage.py migrate --noinput
+run_cmd_as_appuser python manage.py migrate --noinput
 
 cmd="${1:-}"
 
 # Si el comando solicitado es celery (worker/beat), ejecútalo directamente
 if [[ "$cmd" == "celery" ]]; then
   shift
-  exec celery "$@"
+  exec_as_appuser celery "$@"
 fi
 
 # Si no hay comando (servicio web) o es gunicorn, recopila estáticos y arranca web
 if [[ -z "$cmd" || "$cmd" == "gunicorn" ]]; then
-  python manage.py collectstatic --noinput
-  exec gunicorn --bind 0.0.0.0:8000 --workers 3 apismartlend.wsgi:application
+  run_cmd_as_appuser python manage.py collectstatic --noinput
+  exec_as_appuser gunicorn --bind 0.0.0.0:8000 --workers 3 apismartlend.wsgi:application
 fi
 
 # Para cualquier otro comando, simplemente ejecútalo
-exec "$@"
+exec_as_appuser "$@"
