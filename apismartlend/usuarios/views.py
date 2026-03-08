@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from rest_framework import generics
 from rest_framework import status, viewsets
+from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view
 from rest_framework.decorators import action
 from rest_framework.decorators import permission_classes
@@ -47,6 +48,11 @@ def _director_email(usuario):
         return usuario.id_carrera.director.correo  # type: ignore[attr-defined]
     except DirectorCarrera.DoesNotExist:
         return None
+
+
+def _token_para_usuario(usuario):
+    token, _ = Token.objects.get_or_create(user=usuario)
+    return token.key
 
 
 class RolUsuarioViewSet(viewsets.ModelViewSet):
@@ -212,6 +218,7 @@ class LoginBodegueroView(generics.GenericAPIView):
             return Response({'error': 'Rol no autorizado para este login'}, status=status.HTTP_403_FORBIDDEN)
 
         login(request, user)
+        token = _token_para_usuario(user)
 
         return Response(
             {
@@ -221,6 +228,8 @@ class LoginBodegueroView(generics.GenericAPIView):
                 'nombres': user.nombres,
                 'apellidos': user.apellidos,
                 'rol': user.id_rol.nombre if user.id_rol else None,
+                'token': token,
+                'token_type': 'Token',
             },
             status=status.HTTP_200_OK,
         )
@@ -255,6 +264,7 @@ class LoginUsuarioView(generics.GenericAPIView):
             )
 
         login(request, user)
+        token = _token_para_usuario(user)
 
         return Response(
             {
@@ -264,6 +274,8 @@ class LoginUsuarioView(generics.GenericAPIView):
                 'nombres': user.nombres,
                 'apellidos': user.apellidos,
                 'rol': user.id_rol.nombre if user.id_rol else None,
+                'token': token,
+                'token_type': 'Token',
             },
             status=status.HTTP_200_OK,
         )
@@ -403,12 +415,15 @@ def login_face(request):
                     status=status.HTTP_403_FORBIDDEN,
                 )
             login(request, usuario, backend='django.contrib.auth.backends.ModelBackend')
+            token = _token_para_usuario(usuario)
             return Response(
                 {
                     'existe_embedding': True,
                     'usuario_id': usuario.id,
                     'nombres': usuario.nombres,
                     'apellidos': usuario.apellidos,
+                    'token': token,
+                    'token_type': 'Token',
                 },
                 status=status.HTTP_200_OK,
             )
