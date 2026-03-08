@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from inventario.models import herramienta_individual, tipo_herramienta
 from inventario.serializers import HerramientaIndividualSerializer
+from usuarios.permissions import ROLE_DOCENTE, is_bodeguero, user_role_code
 
 from .models import (
     alerta,
@@ -48,14 +49,16 @@ class PrestamoSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _is_docente(usuario):
-        return bool(
-            usuario
-            and getattr(usuario, 'id_rol', None)
-            and getattr(usuario.id_rol, 'nombre', '').strip().lower() == 'docente'
-        )
+        return user_role_code(usuario) == ROLE_DOCENTE
 
-    def _validate_item_limit(self, usuario, tipos_list):
-        if self._is_docente(usuario):
+    def _actor_is_bodeguero(self):
+        request = self.context.get('request')
+        if request is None:
+            return False
+        return is_bodeguero(request.user)
+
+    def _validate_item_limit(self, usuario, tipos_list, actor_is_bodeguero=False):
+        if self._is_docente(usuario) or actor_is_bodeguero:
             return
 
         max_items = getattr(settings, 'SMARTLEND_MAX_ITEMS_PER_LOAN', None)
@@ -72,6 +75,7 @@ class PrestamoSerializer(serializers.ModelSerializer):
         attrs = super().validate(attrs)
 
         require_reserva_docente = self.context.get('require_reserva_docente', False)
+        actor_is_bodeguero = self._actor_is_bodeguero()
 
         if self.instance is not None:
             return attrs
@@ -82,7 +86,7 @@ class PrestamoSerializer(serializers.ModelSerializer):
         fecha_devolucion_esperada = attrs.get('fecha_devolucion_esperada')
         today = timezone.localdate()
 
-        if require_reserva_docente and not self._is_docente(usuario):
+        if require_reserva_docente and not (self._is_docente(usuario) or actor_is_bodeguero):
             raise serializers.ValidationError(
                 {'id_usuario': 'El endpoint de reserva docente solo acepta usuarios con rol Docente'}
             )
@@ -92,7 +96,7 @@ class PrestamoSerializer(serializers.ModelSerializer):
             )
 
         if fecha_inicio_reserva is not None:
-            if not self._is_docente(usuario):
+            if not (self._is_docente(usuario) or actor_is_bodeguero):
                 raise serializers.ValidationError(
                     {'fecha_inicio_reserva': 'Solo los usuarios con rol Docente pueden reservar para mañana'}
                 )
@@ -108,7 +112,7 @@ class PrestamoSerializer(serializers.ModelSerializer):
                 attrs['fecha_devolucion_esperada'] = fecha_inicio_reserva + timedelta(days=1)
                 fecha_devolucion_esperada = attrs['fecha_devolucion_esperada']
         elif fecha_prestamo is not None and timezone.localdate(fecha_prestamo) > today:
-            if not self._is_docente(usuario):
+            if not (self._is_docente(usuario) or actor_is_bodeguero):
                 raise serializers.ValidationError(
                     {'fecha_prestamo': 'Solo los usuarios con rol Docente pueden crear préstamos con inicio futuro'}
                 )
@@ -216,7 +220,11 @@ class PrestamoSerializer(serializers.ModelSerializer):
         tipos_list = self._validated_tipos(tipos_raw)
         if not tipos_list:
             raise serializers.ValidationError({'tipos': 'Debes indicar al menos un tipo_herramienta con cantidad'})
-        self._validate_item_limit(validated_data.get('id_usuario'), tipos_list)
+        self._validate_item_limit(
+            validated_data.get('id_usuario'),
+            tipos_list,
+            actor_is_bodeguero=self._actor_is_bodeguero(),
+        )
         with transaction.atomic():
             self._ensure_stock(tipos_list)
             loan = super().create(validated_data)
@@ -239,11 +247,16 @@ class PrestamoSerializer(serializers.ModelSerializer):
         tipos_raw = validated_data.pop('tipos', None)
         validated_data.pop('fecha_inicio_reserva', None)
         previous_estado = instance.estado_prestamo
+        actor_is_bodeguero = self._actor_is_bodeguero()
         with transaction.atomic():
             loan = super().update(instance, validated_data)
             if tipos_raw is not None:
                 tipos_list = self._validated_tipos(tipos_raw)
-                self._validate_item_limit(loan.id_usuario, tipos_list)
+                self._validate_item_limit(
+                    loan.id_usuario,
+                    tipos_list,
+                    actor_is_bodeguero=actor_is_bodeguero,
+                )
                 if loan.herramientas.exists():
                     raise serializers.ValidationError({'tipos': 'No puedes modificar tipos cuando ya hay herramientas asignadas'})
                 # liberar reserva previa

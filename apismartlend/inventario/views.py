@@ -17,6 +17,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from operaciones.models import prestamo
+from usuarios.permissions import EsActorSistema, EsBodeguero
 
 from .models import (
     categoria_herramienta,
@@ -62,6 +63,12 @@ def _prestamos_activos_queryset():
 class TipoHerramientaViewSet(viewsets.ModelViewSet):
     queryset = tipo_herramienta.objects.all()
     serializer_class = TipoHerramientaSerializer
+    permission_classes = [EsActorSistema]
+
+    def get_permissions(self):
+        if self.action in {'create', 'update', 'partial_update', 'destroy'}:
+            return [EsBodeguero()]
+        return super().get_permissions()
 
     @action(detail=False, methods=['get'], url_path='resumen')
     def resumen_herramientas(self, request):
@@ -113,11 +120,31 @@ class TipoHerramientaViewSet(viewsets.ModelViewSet):
 class CategoriaHerramientaViewSet(viewsets.ModelViewSet):
     queryset = categoria_herramienta.objects.all()
     serializer_class = CategoriaHerramientaSerializer
+    permission_classes = [EsActorSistema]
+
+    def get_permissions(self):
+        if self.action in {'create', 'update', 'partial_update', 'destroy'}:
+            return [EsBodeguero()]
+        return super().get_permissions()
 
 
 class HerramientaIndividualViewSet(viewsets.ModelViewSet):
     serializer_class = HerramientaIndividualSerializer
     queryset = herramienta_individual.objects.all()
+    permission_classes = [EsActorSistema]
+
+    def get_permissions(self):
+        if self.action in {
+            'create',
+            'update',
+            'partial_update',
+            'destroy',
+            'no_usables',
+            'marcar_usable',
+            'top5_usadas_mes_excel',
+        }:
+            return [EsBodeguero()]
+        return super().get_permissions()
 
     def _base_queryset(self):
         qs = _annotate_with_prestamo_estado(super().get_queryset())
@@ -282,6 +309,7 @@ class HerramientaIndividualViewSet(viewsets.ModelViewSet):
 
 class HistorialHerramientaViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = HistorialHerramientaSerializer
+    permission_classes = [EsBodeguero]
     queryset = historial_herramienta.objects.select_related(
         'herramienta',
         'herramienta__id_tipo_herramienta',
@@ -292,10 +320,16 @@ class HistorialHerramientaViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        herramienta_id = self.request.query_params.get('herramienta')
+        herramienta_id = (
+            self.request.query_params.get('herramienta')
+            or self.request.query_params.get('id_herramienta')
+        )
+        codigo_barras = (self.request.query_params.get('codigo_barras') or '').strip()
         prestamo_id = self.request.query_params.get('prestamo')
         if herramienta_id:
             qs = qs.filter(herramienta_id=herramienta_id)
+        if codigo_barras:
+            qs = qs.filter(herramienta__codigo_barras__iexact=codigo_barras)
         if prestamo_id:
             qs = qs.filter(prestamo_id=prestamo_id)
         return qs.order_by('-registrada_en')

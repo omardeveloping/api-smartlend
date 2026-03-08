@@ -5,11 +5,19 @@ from django.db import models
 class rol_usuarios(models.Model):
     id_rol = models.AutoField(primary_key=True)
     nombre = models.CharField(max_length=20)
+    codigo = models.CharField(max_length=30, blank=True, default='', db_index=True)
     desc = models.CharField(max_length=100)
     permisos = models.CharField(max_length=200)
 
     def __str__(self):
         return self.nombre
+
+    def save(self, *args, **kwargs):
+        codigo_limpio = (self.codigo or '').strip()
+        if not codigo_limpio:
+            codigo_limpio = (self.nombre or '').strip().upper()
+        self.codigo = codigo_limpio.upper()
+        super().save(*args, **kwargs)
 
 
 class carrera(models.Model):

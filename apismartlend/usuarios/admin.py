@@ -6,8 +6,8 @@ from .models import DirectorCarrera, Usuario, rol_usuarios
 
 @admin.register(rol_usuarios)
 class RolUsuarioAdmin(admin.ModelAdmin):
-    list_display = ('id_rol', 'nombre')
-    search_fields = ('nombre',)
+    list_display = ('id_rol', 'nombre', 'codigo')
+    search_fields = ('nombre', 'codigo')
 
 
 @admin.register(Usuario)

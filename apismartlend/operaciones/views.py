@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from rest_framework.exceptions import PermissionDenied
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
@@ -13,6 +14,12 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from inventario.models import herramienta_individual, historial_herramienta, tipo_herramienta
+from usuarios.permissions import (
+    EsBodeguero,
+    EsDocenteOBodeguero,
+    EsSolicitanteOBodeguero,
+    is_bodeguero,
+)
 
 from .models import (
     alerta,
@@ -103,6 +110,8 @@ def _payload_turno_publico():
 
 
 class TurneroViewSet(viewsets.ViewSet):
+    permission_classes = [EsBodeguero]
+
     @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def actual(self, request):
         return Response(_payload_turno_publico(), status=status.HTTP_200_OK)
@@ -201,6 +210,47 @@ class PrestamoViewSet(viewsets.ModelViewSet):
         'tipos_prestamo__tipo_herramienta',
     )
     serializer_class = PrestamoSerializer
+    permission_classes = [EsSolicitanteOBodeguero]
+
+    def get_permissions(self):
+        if self.action == 'pantalla_turnos':
+            return [AllowAny()]
+        if self.action == 'reserva_docente':
+            return [EsDocenteOBodeguero()]
+        if self.action in {
+            'asignar_herramientas',
+            'devolver_herramientas',
+            'pendientes',
+            'vencidos',
+        }:
+            return [EsBodeguero()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if not getattr(user, 'is_authenticated', False):
+            return qs.none()
+        if is_bodeguero(user):
+            return qs
+        return qs.filter(id_usuario_id=user.id)
+
+    def _validar_usuario_objetivo(self, serializer):
+        if is_bodeguero(self.request.user):
+            return
+        usuario_objetivo = serializer.validated_data.get('id_usuario')
+        if usuario_objetivo is None:
+            return
+        if usuario_objetivo.id != self.request.user.id:
+            raise PermissionDenied('Solo puedes crear o modificar préstamos para tu propio usuario.')
+
+    def perform_create(self, serializer):
+        self._validar_usuario_objetivo(serializer)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        self._validar_usuario_objetivo(serializer)
+        serializer.save()
 
     @action(detail=False, methods=['post'], url_path='reserva-docente')
     def reserva_docente(self, request):
@@ -438,6 +488,7 @@ class PrestamoViewSet(viewsets.ModelViewSet):
 
 class AlertasViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = AlertaSerializer
+    permission_classes = [EsBodeguero]
 
     def get_queryset(self):
         qs = alerta.objects.all()
@@ -487,6 +538,8 @@ class AlertasViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
 
 
 class ReportesViewSet(viewsets.ViewSet):
+    permission_classes = [EsBodeguero]
+
     def _get_formato(self, request):
         formato = request.query_params.get('formato', 'json').strip().lower()
         if formato not in {'json', 'pdf', 'excel'}:

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import DirectorCarrera, Usuario, carrera as CarreraModel, rol_usuarios
+from .permissions import is_bodeguero
 
 
 class LoginBodegueroSerializer(serializers.Serializer):
@@ -82,6 +83,18 @@ class UsuarioSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         password = validated_data.pop('password', None)
+        request = self.context.get('request')
+        if request is not None and request.user.is_authenticated and not is_bodeguero(request.user):
+            for restricted_field in (
+                'id_rol',
+                'esta_baneado',
+                'is_active',
+                'is_staff',
+                'is_superuser',
+                'aviso_ban_enviado',
+                'baneado_en',
+            ):
+                validated_data.pop(restricted_field, None)
         user = super().update(instance, validated_data)
         if password:
             user.set_password(password)

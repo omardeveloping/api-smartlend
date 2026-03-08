@@ -2,11 +2,14 @@ import json
 
 import numpy as np
 from django.contrib.auth import authenticate
+from django.contrib.auth import login
 from django.shortcuts import get_object_or_404
+from django.db.models import Q
 from rest_framework import generics
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.decorators import action
+from rest_framework.decorators import permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
@@ -15,6 +18,12 @@ from operaciones.serializers import PrestamoSerializer
 
 from .face_utils import FaceProcessor
 from .models import DirectorCarrera, Usuario, carrera, rol_usuarios
+from .permissions import (
+    ROLE_BODEGUERO,
+    EsBodeguero,
+    EsBodegueroOSelf,
+    user_role_code,
+)
 from .serializers import (
     CarreraSerializer,
     DirectorCarreraSerializer,
@@ -43,21 +52,30 @@ def _director_email(usuario):
 class RolUsuarioViewSet(viewsets.ModelViewSet):
     queryset = rol_usuarios.objects.all()
     serializer_class = RolUsuarioSerializer
+    permission_classes = [EsBodeguero]
 
 
 class DirectorCarreraViewSet(viewsets.ModelViewSet):
     queryset = DirectorCarrera.objects.select_related('carrera').all()
     serializer_class = DirectorCarreraSerializer
+    permission_classes = [EsBodeguero]
 
 
 class CarreraViewSet(viewsets.ModelViewSet):
     queryset = carrera.objects.all()
     serializer_class = CarreraSerializer
+    permission_classes = [EsBodeguero]
 
 
 class UsuarioViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.select_related('id_carrera', 'id_rol').all()
     serializer_class = UsuarioSerializer
+    permission_classes = [EsBodegueroOSelf]
+
+    def get_permissions(self):
+        if self.action in {'list', 'create', 'destroy'}:
+            return [EsBodeguero()]
+        return super().get_permissions()
 
     def _serialize_prestamos(self, queryset):
         prestamos_qs = queryset.prefetch_related(
@@ -190,8 +208,10 @@ class LoginBodegueroView(generics.GenericAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        if user.id_rol and user.id_rol.nombre.lower() != 'bodeguero':
+        if user_role_code(user) != ROLE_BODEGUERO:
             return Response({'error': 'Rol no autorizado para este login'}, status=status.HTTP_403_FORBIDDEN)
+
+        login(request, user)
 
         return Response(
             {
@@ -234,6 +254,8 @@ class LoginUsuarioView(generics.GenericAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        login(request, user)
+
         return Response(
             {
                 'success': True,
@@ -247,6 +269,7 @@ class LoginUsuarioView(generics.GenericAPIView):
         )
 
 @api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
 def register_face(request):
     if request.method == 'GET':
         return Response(
@@ -283,7 +306,10 @@ def register_face(request):
     if not all([rut, nombres, apellidos, correo, rol_nombre]):
         return Response({'error': 'Campos obligatorios faltantes'}, status=status.HTTP_400_BAD_REQUEST)
 
-    rol = get_object_or_404(rol_usuarios, nombre__iexact=rol_nombre)
+    rol = get_object_or_404(
+        rol_usuarios,
+        Q(codigo__iexact=rol_nombre) | Q(nombre__iexact=rol_nombre),
+    )
     carrera_obj = (
         carrera.objects.filter(nombre__iexact=carrera_nombre).first()
         if carrera_nombre else None
@@ -345,6 +371,7 @@ def _embedding_from_image(image_file):
 
 
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def login_face(request):
     if 'image' in request.FILES:
         try:
@@ -375,6 +402,7 @@ def login_face(request):
                     },
                     status=status.HTTP_403_FORBIDDEN,
                 )
+            login(request, usuario, backend='django.contrib.auth.backends.ModelBackend')
             return Response(
                 {
                     'existe_embedding': True,

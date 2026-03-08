@@ -58,6 +58,7 @@ class UsuarioDashboardBodegueroTests(APITestCase):
             estado_prestamo=prestamo.EstadoPrestamo.CANCELADO,
             id_usuario=self.otro_usuario,
         )
+        self.client.force_authenticate(user=self.usuario)
 
     def test_historial_prestamos_retorna_solo_finalizados_del_usuario(self):
         response = self.client.get(f'/usuarios/api/usuarios/{self.usuario.id}/historial-prestamos/')

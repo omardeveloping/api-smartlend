@@ -27,6 +27,11 @@ class PrestamoReservaDocenteTests(APITestCase):
             desc='Alumno',
             permisos='prestamos',
         )
+        self.bodeguero_role = rol_usuarios.objects.create(
+            nombre='Bodeguero',
+            desc='Bodeguero',
+            permisos='inventario',
+        )
         self.docente = Usuario.objects.create(
             correo='docente@example.com',
             rut='11111111-1',
@@ -41,6 +46,14 @@ class PrestamoReservaDocenteTests(APITestCase):
             apellidos='Turing',
             id_rol=self.alumno_role,
         )
+        self.bodeguero = Usuario.objects.create(
+            correo='bodeguero-reserva@example.com',
+            rut='99999999-9',
+            nombres='Bodega',
+            apellidos='Reservas',
+            id_rol=self.bodeguero_role,
+        )
+        self.client.force_authenticate(user=self.docente)
         self.categoria = categoria_herramienta.objects.create(nombre='Manual')
         self.tipo = tipo_herramienta.objects.create(
             nombre='Martillo',
@@ -85,6 +98,7 @@ class PrestamoReservaDocenteTests(APITestCase):
         self.assertEqual(self.tipo.reservado, 2)
 
     def test_alumno_no_puede_reservar_para_manana(self):
+        self.client.force_authenticate(user=self.alumno)
         tomorrow = timezone.now() + timedelta(days=1)
         payload = {
             'id_usuario': self.alumno.id,
@@ -99,8 +113,7 @@ class PrestamoReservaDocenteTests(APITestCase):
 
         response = self.client.post(self.reserva_docente_url, payload, format='json')
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('id_usuario', response.data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_endpoint_reserva_docente_exige_fecha_inicio_reserva(self):
         payload = {
@@ -145,16 +158,48 @@ class PrestamoReservaDocenteTests(APITestCase):
             ],
         }
 
+        self.client.force_authenticate(user=self.alumno)
         non_docente_response = self.client.post(self.url, non_docente_payload, format='json')
+        self.client.force_authenticate(user=self.docente)
         docente_response = self.client.post(self.url, docente_payload, format='json')
 
         self.assertEqual(non_docente_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('tipos', non_docente_response.data)
         self.assertEqual(docente_response.status_code, status.HTTP_201_CREATED)
 
+    def test_bodeguero_puede_crear_reserva_docente_para_estudiante(self):
+        self.client.force_authenticate(user=self.bodeguero)
+        tomorrow = timezone.now() + timedelta(days=1)
+        payload = {
+            'id_usuario': self.alumno.id,
+            'fecha_inicio_reserva': tomorrow.isoformat(),
+            'tipos': [
+                {
+                    'tipo_herramienta': self.tipo.id_tipo_herramienta,
+                    'cantidad': 1,
+                }
+            ],
+        }
+
+        response = self.client.post(self.reserva_docente_url, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
 
 class TurneroViewSetTests(APITestCase):
     def setUp(self):
+        self.bodeguero_role = rol_usuarios.objects.create(
+            nombre='Bodeguero',
+            desc='Bodeguero',
+            permisos='inventario',
+        )
+        self.bodeguero = Usuario.objects.create(
+            correo='turnero-bodeguero@example.com',
+            rut='33333333-1',
+            nombres='Bodega',
+            apellidos='Turnero',
+            id_rol=self.bodeguero_role,
+        )
         self.role = rol_usuarios.objects.create(
             nombre='Alumno',
             desc='Alumno',
@@ -212,6 +257,7 @@ class TurneroViewSetTests(APITestCase):
 
     def test_siguiente_saltea_turno_actual_y_muestra_el_siguiente(self):
         self.client.get('/operaciones/api/turnero/actual/')
+        self.client.force_authenticate(user=self.bodeguero)
 
         response = self.client.post('/operaciones/api/turnero/siguiente/', {}, format='json')
 
@@ -225,6 +271,7 @@ class TurneroViewSetTests(APITestCase):
 
     def test_rellamar_vuelve_a_poner_un_prestamo_saltado_en_pantalla(self):
         self.client.get('/operaciones/api/turnero/actual/')
+        self.client.force_authenticate(user=self.bodeguero)
         self.client.post('/operaciones/api/turnero/siguiente/', {}, format='json')
 
         response = self.client.post(
@@ -243,6 +290,19 @@ class TurneroViewSetTests(APITestCase):
 
 class ReportesViewSetTests(APITestCase):
     def setUp(self):
+        self.bodeguero_role = rol_usuarios.objects.create(
+            nombre='Bodeguero',
+            desc='Bodeguero',
+            permisos='inventario',
+        )
+        self.bodeguero = Usuario.objects.create(
+            correo='reportes-bodeguero@example.com',
+            rut='11112222-1',
+            nombres='Bodega',
+            apellidos='Reportes',
+            id_rol=self.bodeguero_role,
+        )
+        self.client.force_authenticate(user=self.bodeguero)
         self.role = rol_usuarios.objects.create(
             nombre='Alumno',
             desc='Alumno',
@@ -378,6 +438,7 @@ class PrestamoHerramientasNoUsablesTests(APITestCase):
             tipo_herramienta=self.tipo,
             cantidad=1,
         )
+        self.client.force_authenticate(user=self.bodeguero)
 
     def test_no_permite_asignar_herramienta_no_usable(self):
         herramienta_individual.objects.filter(pk=self.herramienta.pk).update(

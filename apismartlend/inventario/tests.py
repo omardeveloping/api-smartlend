@@ -18,6 +18,19 @@ from usuarios.models import Usuario, rol_usuarios
 
 class HerramientaEstadoUsableTests(APITestCase):
     def setUp(self):
+        self.rol_bodeguero = rol_usuarios.objects.create(
+            nombre='Bodeguero',
+            desc='Bodeguero',
+            permisos='inventario',
+        )
+        self.bodeguero = Usuario.objects.create(
+            correo='bodeguero-tests-inventario@example.com',
+            rut='10000000-1',
+            nombres='Bodega',
+            apellidos='Inventario',
+            id_rol=self.rol_bodeguero,
+        )
+        self.client.force_authenticate(user=self.bodeguero)
         self.categoria = categoria_herramienta.objects.create(nombre='Electricas')
         self.tipo = tipo_herramienta.objects.create(
             nombre='Taladro',
@@ -307,6 +320,61 @@ class HerramientaEstadoUsableTests(APITestCase):
         )
         self.assertEqual(sheet.max_row, 2)
         self.assertEqual(sheet['B2'].value, 'INV-XLS-1')
+
+    def test_historial_exportar_excel_permite_filtrar_por_codigo_barras(self):
+        from openpyxl import load_workbook
+
+        rol_bodeguero = rol_usuarios.objects.create(
+            nombre='bodeguero',
+            desc='Bodeguero',
+            permisos='inventario',
+        )
+        receptor_role = rol_usuarios.objects.create(
+            nombre='Alumno',
+            desc='Alumno',
+            permisos='prestamos',
+        )
+        bodeguero = Usuario.objects.create(
+            correo='bodeguero-codigo@example.com',
+            rut='55555555-1',
+            nombres='Bodega',
+            apellidos='Codigo',
+            id_rol=rol_bodeguero,
+        )
+        receptor = Usuario.objects.create(
+            correo='alumno-codigo@example.com',
+            rut='55555555-2',
+            nombres='Alumno',
+            apellidos='Codigo',
+            id_rol=receptor_role,
+        )
+        herramienta = self._crear_herramienta(
+            'INV-CODIGO-1',
+            herramienta_individual.EstadoHerramienta.BUENO,
+            disponible=False,
+        )
+        loan = prestamo.objects.create(
+            fecha_prestamo=self.now - timedelta(hours=1),
+            fecha_devolucion_esperada=self.now + timedelta(days=1),
+            estado_prestamo=prestamo.EstadoPrestamo.ENTREGADO,
+            id_usuario=receptor,
+        )
+        historial_herramienta.objects.create(
+            herramienta=herramienta,
+            estado_herramienta=herramienta.estado_herramienta,
+            prestamo=loan,
+            usuario=bodeguero,
+        )
+
+        response = self.client.get(
+            '/inventario/api/historial-herramientas/exportar-excel/?codigo_barras=INV-CODIGO-1'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        workbook = load_workbook(filename=BytesIO(response.content))
+        sheet = workbook.active
+        self.assertEqual(sheet.max_row, 2)
+        self.assertEqual(sheet['B2'].value, 'INV-CODIGO-1')
 
     def test_top5_usadas_mes_excel_retorna_archivo_ordenado(self):
         from openpyxl import load_workbook
