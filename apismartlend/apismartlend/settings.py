@@ -33,7 +33,11 @@ def env_bool(name: str, default: bool = False) -> bool:
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY", default="django-insecure-@i#o!47x2ygm)yu$(a_9+a(&u_dy2$lcb1xw@x*&xqpul=7y-*")
+_secret_key = (
+    os.environ.get("SECRET_KEY")
+    or os.environ.get("DJANGO_SECRET_KEY")
+)
+SECRET_KEY = _secret_key or "django-insecure-@i#o!47x2ygm)yu$(a_9+a(&u_dy2$lcb1xw@x*&xqpul=7y-*"
 FACE_ENCRYPTION_KEY = os.environ.get("FACE_ENCRYPTION_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool("DEBUG", True)

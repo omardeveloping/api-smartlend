@@ -4,6 +4,7 @@ from django.core.mail import send_mail
 from django.db import transaction
 from django.utils import timezone
 
+from inventario.models import herramienta_individual
 from operaciones.models import alerta, prestamo
 from usuarios.models import DirectorCarrera
 
@@ -22,6 +23,7 @@ def expirar_prestamo_pendiente(prestamo_id):
         return {'status': 'no_change'}
 
     with transaction.atomic():
+        estados_no_usables = set(herramienta_individual.estados_no_usables())
         loan.estado_prestamo = prestamo.EstadoPrestamo.EXPIRADO
         loan.save(update_fields=['estado_prestamo'])
 
@@ -32,8 +34,11 @@ def expirar_prestamo_pendiente(prestamo_id):
 
         herramientas = list(loan.herramientas.all())
         for herramienta in herramientas:
-            if not herramienta.disponible:
-                herramienta.disponible = True
+            disponible_anterior = herramienta.disponible
+            herramienta.disponible = (
+                herramienta.estado_herramienta not in estados_no_usables
+            )
+            if herramienta.disponible != disponible_anterior:
                 herramienta.save(update_fields=['disponible'])
 
     return {'status': 'expired', 'herramientas_liberadas': len(herramientas)}

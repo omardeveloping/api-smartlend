@@ -3,6 +3,7 @@ from io import BytesIO
 
 from django.http import HttpResponse
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import mixins, viewsets
@@ -265,6 +266,9 @@ class PrestamoViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def asignar_herramientas(self, request, pk=None):
         loan = self.get_object()
+        prestamo_cambiara_a_entregado = (
+            loan.estado_prestamo == prestamo.EstadoPrestamo.PENDIENTE
+        )
         codigos = request.data.get('codigos')
         if not isinstance(codigos, list):
             return Response({'detail': 'codigos debe ser una lista'}, status=400)
@@ -287,6 +291,7 @@ class PrestamoViewSet(viewsets.ModelViewSet):
             nombres_tipo[t.tipo_herramienta_id] = getattr(t.tipo_herramienta, 'nombre', str(t.tipo_herramienta_id))
 
         with transaction.atomic():
+            estados_no_usables = set(herramienta_individual.estados_no_usables())
             herramientas = list(
                 herramienta_individual.objects.select_for_update().filter(codigo_barras__in=codigos)
             )
@@ -298,6 +303,13 @@ class PrestamoViewSet(viewsets.ModelViewSet):
             no_disponibles = [h.codigo_barras for h in herramientas if not h.disponible]
             if no_disponibles:
                 return Response({'detail': f'Herramientas no disponibles: {", ".join(no_disponibles)}'}, status=400)
+            no_usables = [
+                h.codigo_barras
+                for h in herramientas
+                if h.estado_herramienta in estados_no_usables
+            ]
+            if no_usables:
+                return Response({'detail': f'Herramientas no usables: {", ".join(no_usables)}'}, status=400)
 
             conteo_por_tipo = Counter([h.id_tipo_herramienta_id for h in herramientas])
             extras = [tid for tid in conteo_por_tipo if tid not in requeridos]
@@ -340,8 +352,11 @@ class PrestamoViewSet(viewsets.ModelViewSet):
 
             actuales = list(loan.herramientas.select_for_update().all())
             for herramienta in actuales:
-                if not herramienta.disponible:
-                    herramienta.disponible = True
+                disponible_anterior = herramienta.disponible
+                herramienta.disponible = (
+                    herramienta.estado_herramienta not in estados_no_usables
+                )
+                if herramienta.disponible != disponible_anterior:
                     herramienta.save(update_fields=['disponible'])
             loan.herramientas.clear()
 
@@ -351,7 +366,11 @@ class PrestamoViewSet(viewsets.ModelViewSet):
                     herramienta.save(update_fields=['disponible'])
             loan.herramientas.add(*herramientas)
 
-            if loan.estado_prestamo == prestamo.EstadoPrestamo.PENDIENTE:
+            if prestamo_cambiara_a_entregado:
+                herramienta_ids = [herramienta.pk for herramienta in herramientas]
+                herramienta_individual.objects.filter(
+                    pk__in=herramienta_ids,
+                ).update(numero_prestamos=F('numero_prestamos') + 1)
                 loan.estado_prestamo = prestamo.EstadoPrestamo.ENTREGADO
                 loan.save(update_fields=['estado_prestamo'])
 
@@ -361,6 +380,7 @@ class PrestamoViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def devolver_herramientas(self, request, pk=None):
         loan = self.get_object()
+        usuario_prestador = request.user if getattr(request.user, 'is_authenticated', False) else None
         codigos = request.data.get('codigos')
         if not isinstance(codigos, list):
             return Response({'detail': 'codigos debe ser una lista'}, status=400)
@@ -376,6 +396,7 @@ class PrestamoViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'estados debe ser un objeto {codigo: estado_herramienta}'}, status=400)
 
         with transaction.atomic():
+            estados_no_usables = set(herramienta_individual.estados_no_usables())
             herramientas = list(
                 loan.herramientas.select_for_update().filter(codigo_barras__in=codigos)
             )
@@ -395,15 +416,16 @@ class PrestamoViewSet(viewsets.ModelViewSet):
                         return Response({'detail': f'Estado inválido para {herramienta.codigo_barras}'}, status=400)
                     herramienta.estado_herramienta = nuevo_estado
 
-                if not herramienta.disponible:
-                    herramienta.disponible = True
+                herramienta.disponible = (
+                    herramienta.estado_herramienta not in estados_no_usables
+                )
                 herramienta.save(update_fields=['estado_herramienta', 'disponible'])
 
                 historial_herramienta.objects.create(
                     herramienta=herramienta,
                     estado_herramienta=herramienta.estado_herramienta,
                     prestamo=loan,
-                    usuario=loan.id_usuario,
+                    usuario=usuario_prestador,
                 )
 
             loan.estado_prestamo = prestamo.EstadoPrestamo.FINALIZADO
@@ -433,9 +455,14 @@ class AlertasViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
 
     def list(self, request, *args, **kwargs):
         now = timezone.now()
+        estados_alertables = [
+            prestamo.EstadoPrestamo.ENTREGADO,
+            prestamo.EstadoPrestamo.VENCIDO,
+        ]
         vencidos = prestamo.objects.filter(
             fecha_devolucion_real__isnull=True,
             fecha_devolucion_esperada__lt=now,
+            estado_prestamo__in=estados_alertables,
         )
 
         for loan in vencidos:
@@ -453,6 +480,7 @@ class AlertasViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
         ).exclude(
             prestamo__fecha_devolucion_real__isnull=True,
             prestamo__fecha_devolucion_esperada__lt=now,
+            prestamo__estado_prestamo__in=estados_alertables,
         ).update(resuelta=True, resuelta_en=now)
 
         return super().list(request, *args, **kwargs)
@@ -588,12 +616,15 @@ class ReportesViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def inventario(self, request):
         tipos = tipo_herramienta.objects.order_by('nombre')
+        estados_no_usables = herramienta_individual.estados_no_usables()
         rows = []
         for tipo in tipos:
             total = herramienta_individual.objects.filter(id_tipo_herramienta=tipo).count()
             disponibles = herramienta_individual.objects.filter(
                 id_tipo_herramienta=tipo,
                 disponible=True,
+            ).exclude(
+                estado_herramienta__in=estados_no_usables,
             ).count()
             rows.append(
                 {

@@ -16,7 +16,11 @@ class tipo_herramienta(models.Model):
     id_categoria = models.ForeignKey(categoria_herramienta, on_delete=models.CASCADE)
 
     def recalcular_stock(self):
-        disponibles = self.herramienta_individual_set.filter(disponible=True).count()
+        disponibles = self.herramienta_individual_set.filter(
+            disponible=True,
+        ).exclude(
+            estado_herramienta__in=herramienta_individual.estados_no_usables()
+        ).count()
         nuevo_stock = max(disponibles - self.reservado, 0)
         tipo_herramienta.objects.filter(pk=self.pk).update(stock=nuevo_stock)
         self.stock = nuevo_stock
@@ -25,7 +29,11 @@ class tipo_herramienta(models.Model):
         nueva_reserva = self.reservado + delta_cantidad
         if nueva_reserva < 0:
             raise ValueError('Reservado no puede ser negativo')
-        disponibles = self.herramienta_individual_set.filter(disponible=True).count()
+        disponibles = self.herramienta_individual_set.filter(
+            disponible=True,
+        ).exclude(
+            estado_herramienta__in=herramienta_individual.estados_no_usables()
+        ).count()
         nuevo_stock = max(disponibles - nueva_reserva, 0)
         tipo_herramienta.objects.filter(pk=self.pk).update(reservado=nueva_reserva, stock=nuevo_stock)
         self.reservado = nueva_reserva
@@ -41,6 +49,9 @@ class herramienta_individual(models.Model):
         DANADO = 'Dañado', 'Dañado'
 
     id_herramienta = models.AutoField(primary_key=True)
+    marca = models.CharField(max_length=50, blank=True, default='')
+    modelo = models.CharField(max_length=50, blank=True, default='')
+    numero_prestamos = models.PositiveIntegerField(default=0, editable=False)
     codigo_barras = models.CharField(max_length=50, unique=True)
     imagen = models.ImageField(upload_to='herramientas/', null=True, blank=True)
     estado_herramienta = models.CharField(
@@ -51,8 +62,25 @@ class herramienta_individual(models.Model):
     fecha_adquisicion = models.DateTimeField()
     id_tipo_herramienta = models.ForeignKey(tipo_herramienta, on_delete=models.CASCADE)
 
+    @classmethod
+    def estados_no_usables(cls):
+        return [
+            cls.EstadoHerramienta.DEFECTUOSO,
+            cls.EstadoHerramienta.DANADO,
+        ]
+
+    @classmethod
+    def estados_usables(cls):
+        return [
+            estado
+            for estado, _ in cls.EstadoHerramienta.choices
+            if estado not in cls.estados_no_usables()
+        ]
+
     # Esto es para recalcular el stock automáticamente al guardar o borrar una herramienta individual
     def save(self, *args, **kwargs):
+        if self.estado_herramienta in self.estados_no_usables():
+            self.disponible = False
         old_tipo_id = None
         if self.pk:
             old_tipo_id = herramienta_individual.objects.filter(

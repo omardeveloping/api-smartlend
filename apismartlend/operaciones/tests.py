@@ -5,8 +5,13 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from inventario.models import categoria_herramienta, herramienta_individual, tipo_herramienta
-from operaciones.models import prestamo
+from inventario.models import (
+    categoria_herramienta,
+    herramienta_individual,
+    historial_herramienta,
+    tipo_herramienta,
+)
+from operaciones.models import PrestamoTipoHerramienta, prestamo
 from usuarios.models import Usuario, rol_usuarios
 
 
@@ -320,3 +325,119 @@ class ReportesViewSetTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response['Content-Type'], 'application/pdf')
+
+
+class PrestamoHerramientasNoUsablesTests(APITestCase):
+    def setUp(self):
+        self.role = rol_usuarios.objects.create(
+            nombre='Alumno',
+            desc='Alumno',
+            permisos='prestamos',
+        )
+        self.bodeguero_role = rol_usuarios.objects.create(
+            nombre='bodeguero',
+            desc='Bodeguero',
+            permisos='inventario',
+        )
+        self.usuario = Usuario.objects.create(
+            correo='no-usables@example.com',
+            rut='77777777-7',
+            nombres='Marie',
+            apellidos='Curie',
+            id_rol=self.role,
+        )
+        self.bodeguero = Usuario.objects.create(
+            correo='bodeguero-no-usables@example.com',
+            rut='88888888-8',
+            nombres='Bodega',
+            apellidos='Tester',
+            id_rol=self.bodeguero_role,
+        )
+        self.categoria = categoria_herramienta.objects.create(nombre='Manual')
+        self.tipo = tipo_herramienta.objects.create(
+            nombre='Llave inglesa',
+            descripcion='Herramienta para pruebas',
+            id_categoria=self.categoria,
+        )
+        base = timezone.now()
+        self.herramienta = herramienta_individual.objects.create(
+            codigo_barras='NO-USA-1',
+            estado_herramienta=herramienta_individual.EstadoHerramienta.BUENO,
+            disponible=True,
+            fecha_adquisicion=base,
+            id_tipo_herramienta=self.tipo,
+        )
+        self.loan = prestamo.objects.create(
+            fecha_prestamo=base - timedelta(minutes=5),
+            fecha_devolucion_esperada=base + timedelta(days=1),
+            estado_prestamo=prestamo.EstadoPrestamo.PENDIENTE,
+            id_usuario=self.usuario,
+        )
+        PrestamoTipoHerramienta.objects.create(
+            prestamo=self.loan,
+            tipo_herramienta=self.tipo,
+            cantidad=1,
+        )
+
+    def test_no_permite_asignar_herramienta_no_usable(self):
+        herramienta_individual.objects.filter(pk=self.herramienta.pk).update(
+            estado_herramienta=herramienta_individual.EstadoHerramienta.DEFECTUOSO,
+            disponible=True,
+        )
+
+        response = self.client.post(
+            f'/operaciones/api/prestamos/{self.loan.id_prestamo}/asignar_herramientas/',
+            {'codigos': [self.herramienta.codigo_barras]},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('no usables', response.data.get('detail', '').lower())
+
+    def test_devolucion_danada_no_reactiva_disponibilidad(self):
+        self.herramienta.disponible = False
+        self.herramienta.save(update_fields=['disponible'])
+        self.loan.herramientas.add(self.herramienta)
+        self.loan.estado_prestamo = prestamo.EstadoPrestamo.ENTREGADO
+        self.loan.save(update_fields=['estado_prestamo'])
+        self.client.force_authenticate(user=self.bodeguero)
+
+        response = self.client.post(
+            f'/operaciones/api/prestamos/{self.loan.id_prestamo}/devolver_herramientas/',
+            {
+                'codigos': [self.herramienta.codigo_barras],
+                'estados': {
+                    self.herramienta.codigo_barras: herramienta_individual.EstadoHerramienta.DANADO,
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.herramienta.refresh_from_db()
+        self.assertEqual(
+            self.herramienta.estado_herramienta,
+            herramienta_individual.EstadoHerramienta.DANADO,
+        )
+        self.assertFalse(self.herramienta.disponible)
+        registro = historial_herramienta.objects.get(
+            prestamo=self.loan,
+            herramienta=self.herramienta,
+        )
+        self.assertEqual(registro.usuario_id, self.bodeguero.id)
+        self.assertEqual(registro.prestamo.id_usuario_id, self.usuario.id)
+
+    def test_asignar_herramientas_incrementa_numero_prestamos(self):
+        self.assertEqual(self.herramienta.numero_prestamos, 0)
+
+        response = self.client.post(
+            f'/operaciones/api/prestamos/{self.loan.id_prestamo}/asignar_herramientas/',
+            {'codigos': [self.herramienta.codigo_barras]},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.herramienta.refresh_from_db()
+        self.loan.refresh_from_db()
+        self.assertEqual(self.herramienta.numero_prestamos, 1)
+        self.assertEqual(self.loan.estado_prestamo, prestamo.EstadoPrestamo.ENTREGADO)

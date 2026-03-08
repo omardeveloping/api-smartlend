@@ -171,6 +171,7 @@ class PrestamoSerializer(serializers.ModelSerializer):
         return cleaned
 
     def _ensure_stock(self, tipos_list):
+        estados_no_usables = herramienta_individual.estados_no_usables()
         shortages = []
         for entry in tipos_list:
             tipo_obj = entry['tipo']
@@ -178,6 +179,8 @@ class PrestamoSerializer(serializers.ModelSerializer):
             disponibles = herramienta_individual.objects.filter(
                 id_tipo_herramienta=tipo_obj,
                 disponible=True,
+            ).exclude(
+                estado_herramienta__in=estados_no_usables,
             ).count()
             reservado = getattr(tipo_obj, 'reservado', 0) or 0
             libres = max(disponibles - reservado, 0)
@@ -260,9 +263,13 @@ class PrestamoSerializer(serializers.ModelSerializer):
                 previous_estado != prestamo.EstadoPrestamo.FINALIZADO
                 and loan.estado_prestamo == prestamo.EstadoPrestamo.FINALIZADO
             ):
+                estados_no_usables = set(herramienta_individual.estados_no_usables())
                 for herramienta in loan.herramientas.all():
-                    if not herramienta.disponible:
-                        herramienta.disponible = True
+                    disponible_anterior = herramienta.disponible
+                    herramienta.disponible = (
+                        herramienta.estado_herramienta not in estados_no_usables
+                    )
+                    if herramienta.disponible != disponible_anterior:
                         herramienta.save(update_fields=['disponible'])
         return loan
 
