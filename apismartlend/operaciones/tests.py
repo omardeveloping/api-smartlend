@@ -12,6 +12,10 @@ from inventario.models import (
     tipo_herramienta,
 )
 from operaciones.models import PrestamoTipoHerramienta, prestamo
+from operaciones.tasks import (
+    expirar_prestamo_pendiente,
+    reconciliar_prestamos_pendientes_expirados,
+)
 from usuarios.models import Usuario, rol_usuarios
 
 
@@ -184,6 +188,89 @@ class PrestamoReservaDocenteTests(APITestCase):
         response = self.client.post(self.reserva_docente_url, payload, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+class PrestamoExpiracionSafetyTests(APITestCase):
+    def setUp(self):
+        self.role = rol_usuarios.objects.create(
+            nombre='Alumno',
+            desc='Alumno',
+            permisos='prestamos',
+        )
+        self.usuario = Usuario.objects.create(
+            correo='expiracion-safety@example.com',
+            rut='44444444-4',
+            nombres='Katherine',
+            apellidos='Johnson',
+            id_rol=self.role,
+        )
+        self.categoria = categoria_herramienta.objects.create(nombre='Seguridad')
+        self.tipo = tipo_herramienta.objects.create(
+            nombre='Alicate',
+            descripcion='Alicate de pruebas',
+            id_categoria=self.categoria,
+        )
+        herramienta_individual.objects.create(
+            codigo_barras='SEG-1',
+            estado_herramienta=herramienta_individual.EstadoHerramienta.BUENO,
+            disponible=True,
+            fecha_adquisicion=timezone.now(),
+            id_tipo_herramienta=self.tipo,
+        )
+
+    def _crear_prestamo_pendiente(self, fecha_prestamo):
+        loan = prestamo.objects.create(
+            fecha_prestamo=fecha_prestamo,
+            fecha_devolucion_esperada=fecha_prestamo + timedelta(days=1),
+            estado_prestamo=prestamo.EstadoPrestamo.PENDIENTE,
+            id_usuario=self.usuario,
+        )
+        PrestamoTipoHerramienta.objects.create(
+            prestamo=loan,
+            tipo_herramienta=self.tipo,
+            cantidad=1,
+        )
+        self.tipo.ajustar_reserva(1)
+        return loan
+
+    def test_reconciliacion_expira_pendiente_atrasado_y_libera_reserva(self):
+        now = timezone.now()
+        loan = self._crear_prestamo_pendiente(now - timedelta(minutes=40))
+
+        result = reconciliar_prestamos_pendientes_expirados()
+
+        loan.refresh_from_db()
+        self.tipo.refresh_from_db()
+        self.assertEqual(loan.estado_prestamo, prestamo.EstadoPrestamo.EXPIRADO)
+        self.assertEqual(self.tipo.reservado, 0)
+        self.assertEqual(result['expirados'], 1)
+
+    def test_expirar_prestamo_pendiente_no_expira_antes_de_30_min(self):
+        now = timezone.now()
+        loan = self._crear_prestamo_pendiente(now - timedelta(minutes=10))
+
+        result = expirar_prestamo_pendiente(loan.id_prestamo)
+
+        loan.refresh_from_db()
+        self.tipo.refresh_from_db()
+        self.assertEqual(loan.estado_prestamo, prestamo.EstadoPrestamo.PENDIENTE)
+        self.assertEqual(self.tipo.reservado, 1)
+        self.assertEqual(result['status'], 'too_early')
+
+    def test_reconciliacion_ignora_pendiente_dentro_de_ventana(self):
+        now = timezone.now()
+        vencido = self._crear_prestamo_pendiente(now - timedelta(minutes=45))
+        vigente = self._crear_prestamo_pendiente(now - timedelta(minutes=5))
+
+        result = reconciliar_prestamos_pendientes_expirados()
+
+        vencido.refresh_from_db()
+        vigente.refresh_from_db()
+        self.tipo.refresh_from_db()
+        self.assertEqual(vencido.estado_prestamo, prestamo.EstadoPrestamo.EXPIRADO)
+        self.assertEqual(vigente.estado_prestamo, prestamo.EstadoPrestamo.PENDIENTE)
+        self.assertEqual(self.tipo.reservado, 1)
+        self.assertEqual(result['expirados'], 1)
 
 
 class TurneroViewSetTests(APITestCase):

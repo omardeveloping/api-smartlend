@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from celery import shared_task
 from django.conf import settings
 from django.core.mail import send_mail
@@ -8,19 +10,26 @@ from inventario.models import herramienta_individual
 from operaciones.models import alerta, prestamo
 from usuarios.models import DirectorCarrera
 
-@shared_task
-def expirar_prestamo_pendiente(prestamo_id):
+
+def _expirar_prestamo_si_corresponde(prestamo_id, now=None):
     """
-    Marca como Expirado un préstamo pendiente si siguen pasando 30 minutos sin entrega.
-    Libera las herramientas asignadas para que vuelvan a estar disponibles.
+    Expira un préstamo solo si está Pendiente y ya pasaron 30 minutos desde fecha_prestamo.
     """
+    now = now or timezone.now()
     try:
-        loan = prestamo.objects.prefetch_related('herramientas', 'tipos_prestamo__tipo_herramienta').get(pk=prestamo_id)
+        loan = prestamo.objects.prefetch_related(
+            'herramientas',
+            'tipos_prestamo__tipo_herramienta',
+        ).get(pk=prestamo_id)
     except prestamo.DoesNotExist:
         return {'status': 'not_found'}
 
     if loan.estado_prestamo != prestamo.EstadoPrestamo.PENDIENTE:
         return {'status': 'no_change'}
+
+    expira_en = loan.fecha_prestamo + timedelta(minutes=30)
+    if now < expira_en:
+        return {'status': 'too_early'}
 
     with transaction.atomic():
         estados_no_usables = set(herramienta_individual.estados_no_usables())
@@ -42,6 +51,49 @@ def expirar_prestamo_pendiente(prestamo_id):
                 herramienta.save(update_fields=['disponible'])
 
     return {'status': 'expired', 'herramientas_liberadas': len(herramientas)}
+
+
+@shared_task
+def expirar_prestamo_pendiente(prestamo_id):
+    """
+    Marca como Expirado un préstamo pendiente si siguen pasando 30 minutos sin entrega.
+    Libera las herramientas asignadas para que vuelvan a estar disponibles.
+    """
+    return _expirar_prestamo_si_corresponde(prestamo_id=prestamo_id)
+
+
+@shared_task
+def reconciliar_prestamos_pendientes_expirados(batch_size=200):
+    """
+    Seguro periódico: busca préstamos Pendiente ya vencidos por tiempo y los expira.
+    Cubre casos donde la tarea diferida original no se ejecutó.
+    """
+    now = timezone.now()
+    limite = now - timedelta(minutes=30)
+    pendientes_vencidos_ids = list(
+        prestamo.objects.filter(
+            estado_prestamo=prestamo.EstadoPrestamo.PENDIENTE,
+            fecha_prestamo__lte=limite,
+        )
+        .order_by('fecha_prestamo', 'id_prestamo')
+        .values_list('id_prestamo', flat=True)[:batch_size]
+    )
+
+    expirados = 0
+    no_change = 0
+    for loan_id in pendientes_vencidos_ids:
+        result = _expirar_prestamo_si_corresponde(prestamo_id=loan_id, now=now)
+        if result.get('status') == 'expired':
+            expirados += 1
+        else:
+            no_change += 1
+
+    return {
+        'status': 'ok',
+        'revisados': len(pendientes_vencidos_ids),
+        'expirados': expirados,
+        'sin_cambio': no_change,
+    }
 
 
 ### Tengo que echarle una mirada a esto después de tener todo lo demás listo. (Aprendizaje para el futuro)
