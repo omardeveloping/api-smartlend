@@ -1,5 +1,7 @@
 from datetime import timedelta
+from unittest.mock import patch
 
+import numpy as np
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -89,3 +91,37 @@ class UsuarioDashboardBodegueroTests(APITestCase):
         self.assertEqual(response.data['historial_finalizados']['total'], 1)
         self.assertEqual(response.data['prestamos_activos']['total'], 2)
         self.assertTrue(response.data['estado_bloqueo']['esta_baneado'])
+
+
+class LoginFaceTests(APITestCase):
+    def setUp(self):
+        self.docente_role = rol_usuarios.objects.create(
+            nombre='Docente',
+            desc='Docente',
+            permisos='prestamos',
+        )
+        self.usuario = Usuario.objects.create(
+            correo='docente@example.com',
+            rut='11111111-1',
+            nombres='Ada',
+            apellidos='Lovelace',
+            id_rol=self.docente_role,
+            embedding='dummy-encrypted-embedding',
+        )
+
+    @patch('usuarios.views.processor.match_embeddings', return_value=(True, 0.1))
+    @patch('usuarios.views.processor.decrypt_embedding', return_value=np.zeros(128))
+    def test_login_face_incluye_rol_y_correo_en_respuesta(self, _mock_decrypt, _mock_match):
+        response = self.client.post(
+            '/usuarios/auth/login/',
+            {'embedding': [0.0] * 128},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['success'])
+        self.assertTrue(response.data['existe_embedding'])
+        self.assertEqual(response.data['usuario_id'], self.usuario.id)
+        self.assertEqual(response.data['correo'], self.usuario.correo)
+        self.assertEqual(response.data['rol'], 'Docente')
+        self.assertIn('token', response.data)

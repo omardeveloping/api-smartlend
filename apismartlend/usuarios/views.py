@@ -399,7 +399,7 @@ def login_face(request):
     if not _is_128d(incoming_embedding):
         return Response({'error': 'Embedding con dimensión inválida'}, status=status.HTTP_400_BAD_REQUEST)
 
-    usuarios = Usuario.objects.exclude(embedding__isnull=True).exclude(embedding__exact='')
+    usuarios = Usuario.objects.select_related('id_rol').exclude(embedding__isnull=True).exclude(embedding__exact='')
     for usuario in usuarios.iterator():
         stored_embedding = processor.decrypt_embedding(usuario.embedding)
         if not _is_128d(stored_embedding):
@@ -418,10 +418,13 @@ def login_face(request):
             token = _token_para_usuario(usuario)
             return Response(
                 {
+                    'success': True,
                     'existe_embedding': True,
                     'usuario_id': usuario.id,
+                    'correo': usuario.correo,
                     'nombres': usuario.nombres,
                     'apellidos': usuario.apellidos,
+                    'rol': usuario.id_rol.nombre if usuario.id_rol else None,
                     'token': token,
                     'token_type': 'Token',
                 },
