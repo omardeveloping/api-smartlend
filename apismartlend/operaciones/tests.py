@@ -342,6 +342,13 @@ class TurneroViewSetTests(APITestCase):
         self.assertEqual(alias_response.status_code, status.HTTP_200_OK)
         self.assertEqual(alias_response.data['turno']['codigo_publico'], 'AA-GH10...')
 
+    def test_cola_es_publica(self):
+        response = self.client.get('/operaciones/api/turnero/cola/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['total'], 2)
+        self.assertEqual(len(response.data['pendientes']), 2)
+
     def test_siguiente_saltea_turno_actual_y_muestra_el_siguiente(self):
         self.client.get('/operaciones/api/turnero/actual/')
         self.client.force_authenticate(user=self.bodeguero)

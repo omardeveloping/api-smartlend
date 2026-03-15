@@ -116,7 +116,7 @@ class TurneroViewSet(viewsets.ViewSet):
     def actual(self, request):
         return Response(_payload_turno_publico(), status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def cola(self, request):
         now = timezone.now()
         _normalizar_turnero(now)
