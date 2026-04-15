@@ -56,6 +56,8 @@ class Usuario(AbstractUser):
     esta_baneado = models.BooleanField(default=False)
     baneado_en = models.DateTimeField(null=True, blank=True)
     aviso_ban_enviado = models.BooleanField(default=False)
+    codigo_recuperacion_hash = models.CharField(max_length=128, null=True, blank=True)
+    codigo_recuperacion_expira = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.correo or self.rut

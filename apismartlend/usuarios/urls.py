@@ -3,9 +3,11 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     CarreraViewSet,
+    ConfirmarRecuperacionPasswordView,
     DirectorCarreraViewSet,
     LoginBodegueroView,
     LoginUsuarioView,
+    RecuperarPasswordView,
     RolUsuarioViewSet,
     UsuarioViewSet,
     login_face,
@@ -24,4 +26,10 @@ urlpatterns = [
     path('auth/login/', login_face, name='login-face'),
     path('auth/login-bodeguero/', LoginBodegueroView.as_view(), name='login-bodeguero'),
     path('auth/login-usuario/', LoginUsuarioView.as_view(), name='login-usuario'),
+    path('auth/recuperar-password/', RecuperarPasswordView.as_view(), name='recuperar-password'),
+    path(
+        'auth/confirmar-recuperacion-password/',
+        ConfirmarRecuperacionPasswordView.as_view(),
+        name='confirmar-recuperacion-password',
+    ),
 ]

@@ -1,3 +1,4 @@
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from .models import DirectorCarrera, Usuario, carrera as CarreraModel, rol_usuarios
@@ -7,6 +8,23 @@ from .permissions import is_bodeguero
 class LoginBodegueroSerializer(serializers.Serializer):
     correo = serializers.EmailField()
     password = serializers.CharField(style={'input_type': 'password'})
+
+
+class RecuperarPasswordSerializer(serializers.Serializer):
+    correo = serializers.EmailField()
+
+
+class ConfirmarRecuperacionPasswordSerializer(serializers.Serializer):
+    correo = serializers.EmailField()
+    codigo = serializers.CharField(max_length=6)
+    nueva_password = serializers.CharField(
+        write_only=True,
+        style={'input_type': 'password'},
+    )
+
+    def validate_nueva_password(self, value):
+        validate_password(value)
+        return value
 
 
 class CarreraSerializer(serializers.ModelSerializer):

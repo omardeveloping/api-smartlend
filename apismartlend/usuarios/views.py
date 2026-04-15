@@ -1,10 +1,16 @@
 import json
+import secrets
+from datetime import timedelta
 
 import numpy as np
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import login
-from django.shortcuts import get_object_or_404
+from django.contrib.auth.hashers import check_password, make_password
+from django.core.mail import send_mail
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics
 from rest_framework import status, viewsets
 from rest_framework.authtoken.models import Token
@@ -27,13 +33,17 @@ from .permissions import (
 )
 from .serializers import (
     CarreraSerializer,
+    ConfirmarRecuperacionPasswordSerializer,
     DirectorCarreraSerializer,
     LoginBodegueroSerializer,
+    RecuperarPasswordSerializer,
     RolUsuarioSerializer,
     UsuarioSerializer,
 )
 
+
 processor = FaceProcessor()
+RECOVERY_CODE_TTL_MINUTES = 30
 
 
 def _is_128d(embedding):
@@ -53,6 +63,20 @@ def _director_email(usuario):
 def _token_para_usuario(usuario):
     token, _ = Token.objects.get_or_create(user=usuario)
     return token.key
+
+
+def _recovery_success_response():
+    return Response(
+        {'success': True, 'message': 'Si el correo existe, se envió un código de recuperación.'},
+        status=status.HTTP_200_OK,
+    )
+
+
+def _recovery_invalid_response():
+    return Response(
+        {'error': 'Código inválido o expirado.'},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 class RolUsuarioViewSet(viewsets.ModelViewSet):
@@ -231,6 +255,88 @@ class LoginBodegueroView(generics.GenericAPIView):
                 'token': token,
                 'token_type': 'Token',
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class RecuperarPasswordView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = RecuperarPasswordSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        correo = serializer.validated_data['correo']
+        user = Usuario.objects.filter(correo__iexact=correo, is_active=True).first()
+
+        if user:
+            codigo = f"{secrets.randbelow(1000000):06d}"
+            user.codigo_recuperacion_hash = make_password(codigo)
+            user.codigo_recuperacion_expira = timezone.now() + timedelta(minutes=RECOVERY_CODE_TTL_MINUTES)
+            user.save(update_fields=['codigo_recuperacion_hash', 'codigo_recuperacion_expira'])
+
+            cuerpo = (
+                f"Hola {user.nombres},\n\n"
+                f"Tu código de recuperación de contraseña es: {codigo}\n"
+                f"Este código vence en {RECOVERY_CODE_TTL_MINUTES} minutos.\n\n"
+                "Si no solicitaste este cambio, ignora este correo."
+            )
+
+            try:
+                send_mail(
+                    subject='Recuperación de contraseña Smartlend',
+                    message=cuerpo,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.correo],
+                    fail_silently=False,
+                )
+            except Exception:
+                # Si el correo falla, invalida el código para no dejar una recuperación colgada.
+                user.codigo_recuperacion_hash = None
+                user.codigo_recuperacion_expira = None
+                user.save(update_fields=['codigo_recuperacion_hash', 'codigo_recuperacion_expira'])
+
+        return _recovery_success_response()
+
+
+class ConfirmarRecuperacionPasswordView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = ConfirmarRecuperacionPasswordSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        correo = serializer.validated_data['correo']
+        codigo = serializer.validated_data['codigo']
+        nueva_password = serializer.validated_data['nueva_password']
+
+        user = Usuario.objects.filter(correo__iexact=correo, is_active=True).first()
+        if (
+            user is None
+            or not user.codigo_recuperacion_hash
+            or not user.codigo_recuperacion_expira
+        ):
+            return _recovery_invalid_response()
+
+        if timezone.now() > user.codigo_recuperacion_expira:
+            user.codigo_recuperacion_hash = None
+            user.codigo_recuperacion_expira = None
+            user.save(update_fields=['codigo_recuperacion_hash', 'codigo_recuperacion_expira'])
+            return _recovery_invalid_response()
+
+        if not check_password(codigo, user.codigo_recuperacion_hash):
+            return _recovery_invalid_response()
+
+        user.set_password(nueva_password)
+        user.codigo_recuperacion_hash = None
+        user.codigo_recuperacion_expira = None
+        user.save(update_fields=['password', 'codigo_recuperacion_hash', 'codigo_recuperacion_expira'])
+        Token.objects.filter(user=user).delete()
+
+        return Response(
+            {'success': True, 'message': 'Contraseña actualizada correctamente.'},
             status=status.HTTP_200_OK,
         )
 
