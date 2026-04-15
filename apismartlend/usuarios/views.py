@@ -79,6 +79,16 @@ def _recovery_invalid_response():
     )
 
 
+def _bodeguero_recovery_user(correo):
+    user = Usuario.objects.select_related('id_rol').filter(
+        correo__iexact=correo,
+        is_active=True,
+    ).first()
+    if user is None or user_role_code(user) != ROLE_BODEGUERO:
+        return None
+    return user
+
+
 class RolUsuarioViewSet(viewsets.ModelViewSet):
     queryset = rol_usuarios.objects.all()
     serializer_class = RolUsuarioSerializer
@@ -268,7 +278,7 @@ class RecuperarPasswordView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
 
         correo = serializer.validated_data['correo']
-        user = Usuario.objects.filter(correo__iexact=correo, is_active=True).first()
+        user = _bodeguero_recovery_user(correo)
 
         if user:
             codigo = f"{secrets.randbelow(1000000):06d}"
@@ -312,7 +322,7 @@ class ConfirmarRecuperacionPasswordView(generics.GenericAPIView):
         codigo = serializer.validated_data['codigo']
         nueva_password = serializer.validated_data['nueva_password']
 
-        user = Usuario.objects.filter(correo__iexact=correo, is_active=True).first()
+        user = _bodeguero_recovery_user(correo)
         if (
             user is None
             or not user.codigo_recuperacion_hash
