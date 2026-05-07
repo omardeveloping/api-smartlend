@@ -32,6 +32,7 @@ from .permissions import (
     user_role_code,
 )
 from .serializers import (
+    AsistenciaTecnicaSerializer,
     CarreraSerializer,
     ConfirmarRecuperacionPasswordSerializer,
     DirectorCarreraSerializer,
@@ -44,6 +45,7 @@ from .serializers import (
 
 processor = FaceProcessor()
 RECOVERY_CODE_TTL_MINUTES = 30
+DEFAULT_SUPPORT_EMAIL = 'smartlend.notificacion@gmail.com'
 
 
 def _is_128d(embedding):
@@ -87,6 +89,19 @@ def _bodeguero_recovery_user(correo):
     if user is None or user_role_code(user) != ROLE_BODEGUERO:
         return None
     return user
+
+
+def _missing_support_fields(data):
+    if not hasattr(data, 'get'):
+        return True
+
+    for field in ('rol', 'ventana', 'descripcion'):
+        value = data.get(field)
+        if value is None:
+            return True
+        if isinstance(value, str) and not value.strip():
+            return True
+    return False
 
 
 class RolUsuarioViewSet(viewsets.ModelViewSet):
@@ -219,6 +234,60 @@ class UsuarioViewSet(viewsets.ModelViewSet):
                     'prestamos': activos_data,
                 },
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class EnviarAsistenciaTecnicaView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = AsistenciaTecnicaSerializer
+
+    def post(self, request):
+        if _missing_support_fields(request.data):
+            return Response(
+                {'detail': 'Faltan campos obligatorios'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        soporte_email = getattr(settings, 'SMARTLEND_SUPPORT_EMAIL', DEFAULT_SUPPORT_EMAIL)
+        usuario = request.user if getattr(request.user, 'is_authenticated', False) else None
+        usuario_linea = 'Usuario autenticado: No'
+        if usuario is not None:
+            nombre = f'{usuario.nombres} {usuario.apellidos}'.strip()
+            usuario_linea = f'Usuario autenticado: ID {usuario.id} | {usuario.correo}'
+            if nombre:
+                usuario_linea = f'{usuario_linea} | {nombre}'
+
+        subject = f"[SOPORTE] Nueva Solicitud de Asistencia - {data['rol']}"
+        body = (
+            'Se ha recibido un nuevo reporte de soporte técnico:\n\n'
+            f"Rol del Usuario: {data['rol']}\n"
+            f"Ventana/Página: {data['ventana']}\n"
+            f'{usuario_linea}\n\n'
+            'Descripción del problema:\n'
+            f'"{data["descripcion"]}"'
+        )
+
+        try:
+            send_mail(
+                subject=subject,
+                message=body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[soporte_email],
+                fail_silently=False,
+            )
+        except Exception:
+            return Response(
+                {'detail': 'Error al conectar con el servidor de correo'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {'mensaje': 'Solicitud enviada correctamente'},
             status=status.HTTP_200_OK,
         )
 

@@ -10,6 +10,13 @@ class LoginBodegueroSerializer(serializers.Serializer):
     password = serializers.CharField(style={'input_type': 'password'})
 
 
+class AsistenciaTecnicaSerializer(serializers.Serializer):
+    rol = serializers.CharField(max_length=50)
+    ventana = serializers.CharField(max_length=120)
+    descripcion = serializers.CharField()
+    destinatario = serializers.EmailField(required=False, allow_blank=True)
+
+
 class RecuperarPasswordSerializer(serializers.Serializer):
     correo = serializers.EmailField()
 

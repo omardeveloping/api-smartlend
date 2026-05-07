@@ -2,12 +2,70 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import numpy as np
+from django.core import mail
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from operaciones.models import prestamo
 from usuarios.models import Usuario, rol_usuarios
+
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEFAULT_FROM_EMAIL='no-reply@smartlend.test',
+    SMARTLEND_SUPPORT_EMAIL='soporte@smartlend.test',
+)
+class AsistenciaTecnicaTests(APITestCase):
+    url = '/usuarios/api/soporte/enviar-asistencia/'
+
+    def test_enviar_asistencia_tecnica_envia_correo(self):
+        payload = {
+            'rol': 'bodeguero',
+            'ventana': 'Reportes',
+            'descripcion': 'No carga el reporte de inventario',
+            'destinatario': 'smartlend.notificacion@gmail.com',
+        }
+
+        response = self.client.post(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['mensaje'], 'Solicitud enviada correctamente')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['soporte@smartlend.test'])
+        self.assertEqual(
+            mail.outbox[0].subject,
+            '[SOPORTE] Nueva Solicitud de Asistencia - bodeguero',
+        )
+        self.assertIn('Rol del Usuario: bodeguero', mail.outbox[0].body)
+        self.assertIn('Ventana/Página: Reportes', mail.outbox[0].body)
+        self.assertIn('No carga el reporte de inventario', mail.outbox[0].body)
+
+    def test_enviar_asistencia_tecnica_exige_campos_obligatorios(self):
+        response = self.client.post(
+            self.url,
+            {'rol': 'bodeguero', 'descripcion': 'Falta ventana'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], 'Faltan campos obligatorios')
+
+    @patch('usuarios.views.send_mail', side_effect=Exception('smtp down'))
+    def test_enviar_asistencia_tecnica_retorna_500_si_falla_correo(self, _mock_send_mail):
+        response = self.client.post(
+            self.url,
+            {
+                'rol': 'estudiante',
+                'ventana': 'Prestamos',
+                'descripcion': 'Error al crear préstamo',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.data['detail'], 'Error al conectar con el servidor de correo')
 
 
 class UsuarioDashboardBodegueroTests(APITestCase):
