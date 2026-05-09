@@ -38,6 +38,7 @@ from .serializers import (
     DirectorCarreraSerializer,
     LoginBodegueroSerializer,
     RecuperarPasswordSerializer,
+    RegistroInstitucionalSerializer,
     RolUsuarioSerializer,
     UsuarioSerializer,
 )
@@ -235,6 +236,24 @@ class UsuarioViewSet(viewsets.ModelViewSet):
                 },
             },
             status=status.HTTP_200_OK,
+        )
+
+
+class RegistroInstitucionalView(generics.CreateAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = RegistroInstitucionalSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        usuario = serializer.save()
+        rol_nombre = usuario.id_rol.nombre if usuario.id_rol else 'Usuario'
+        return Response(
+            {
+                'mensaje': f'Usuario registrado exitosamente como {rol_nombre}',
+                'user_id': usuario.id,
+            },
+            status=status.HTTP_201_CREATED,
         )
 
 

@@ -1,8 +1,10 @@
 from django.contrib.auth.password_validation import validate_password
+from django.conf import settings
+from django.db.models import Q
 from rest_framework import serializers
 
 from .models import DirectorCarrera, Usuario, carrera as CarreraModel, rol_usuarios
-from .permissions import is_bodeguero
+from .permissions import ROLE_DOCENTE, ROLE_ESTUDIANTE, is_bodeguero
 
 
 class LoginBodegueroSerializer(serializers.Serializer):
@@ -124,4 +126,80 @@ class UsuarioSerializer(serializers.ModelSerializer):
         if password:
             user.set_password(password)
             user.save(update_fields=['password'])
+        return user
+
+
+class RegistroInstitucionalSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True)
+    codigo_acceso = serializers.CharField(
+        write_only=True,
+        required=True,
+        trim_whitespace=True,
+        error_messages={
+            'blank': 'El campo codigo_acceso es obligatorio para este perfil.',
+            'required': 'El campo codigo_acceso es obligatorio para este perfil.',
+        },
+    )
+    carrera = CarreraSerializer(source='id_carrera', read_only=True)
+
+    class Meta:
+        model = Usuario
+        fields = [
+            'id',
+            'password',
+            'rut',
+            'nombres',
+            'apellidos',
+            'id_carrera',
+            'carrera',
+            'correo',
+            'codigo_acceso',
+        ]
+        read_only_fields = ('id', 'carrera')
+
+    def _codigo_a_rol(self, codigo_acceso):
+        codigos = {
+            str(settings.SMARTLEND_CODIGO_ACCESO_ESTUDIANTE).strip(): ROLE_ESTUDIANTE,
+            str(settings.SMARTLEND_CODIGO_ACCESO_DOCENTE).strip(): ROLE_DOCENTE,
+        }
+        return codigos.get(str(codigo_acceso).strip())
+
+    def _obtener_rol(self, codigo_rol):
+        alias_por_rol = {
+            ROLE_ESTUDIANTE: ('ESTUDIANTE', 'ALUMNO'),
+            ROLE_DOCENTE: ('DOCENTE', 'PROFESOR'),
+        }
+        query = Q()
+        for alias in alias_por_rol.get(codigo_rol, (codigo_rol,)):
+            query |= Q(codigo__iexact=alias) | Q(nombre__iexact=alias)
+
+        rol = rol_usuarios.objects.filter(query).first()
+        if rol is None:
+            raise serializers.ValidationError(
+                {'error': f'No existe un rol configurado para {codigo_rol}.'}
+            )
+        return rol
+
+    def validate(self, attrs):
+        codigo_acceso = attrs.pop('codigo_acceso', None)
+        codigo_rol = self._codigo_a_rol(codigo_acceso)
+        if codigo_rol is None:
+            raise serializers.ValidationError({'error': 'Código de acceso inválido o expirado.'})
+
+        if codigo_rol == ROLE_ESTUDIANTE and attrs.get('id_carrera') is None:
+            raise serializers.ValidationError(
+                {'error': 'El campo id_carrera es obligatorio para este perfil.'}
+            )
+
+        attrs['_codigo_rol'] = codigo_rol
+        return attrs
+
+    def create(self, validated_data):
+        codigo_rol = validated_data.pop('_codigo_rol')
+        password = validated_data.pop('password')
+        rol = self._obtener_rol(codigo_rol)
+
+        user = Usuario.objects.create(id_rol=rol, **validated_data)
+        user.set_password(password)
+        user.save(update_fields=['password'])
         return user

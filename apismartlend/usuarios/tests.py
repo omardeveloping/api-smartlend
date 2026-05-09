@@ -9,7 +9,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from operaciones.models import prestamo
-from usuarios.models import Usuario, rol_usuarios
+from usuarios.models import Usuario, carrera, rol_usuarios
 
 
 @override_settings(
@@ -66,6 +66,93 @@ class AsistenciaTecnicaTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.data['detail'], 'Error al conectar con el servidor de correo')
+
+
+class RegistroInstitucionalTests(APITestCase):
+    url = '/usuarios/api/registro-institucional/'
+
+    def setUp(self):
+        self.estudiante_role = rol_usuarios.objects.create(
+            nombre='Estudiante',
+            codigo='ESTUDIANTE',
+            desc='Estudiante',
+            permisos='prestamos',
+        )
+        self.docente_role = rol_usuarios.objects.create(
+            nombre='Docente',
+            codigo='DOCENTE',
+            desc='Docente',
+            permisos='reservas',
+        )
+        self.carrera = carrera.objects.create(nombre='Informatica')
+
+    def _payload_base(self, **overrides):
+        payload = {
+            'rut': '12345678-9',
+            'nombres': 'Ada',
+            'apellidos': 'Lovelace',
+            'correo': 'ada@example.com',
+            'password': 'clave-segura-123',
+            'id_carrera': self.carrera.id_carrera,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_registro_estudiante_asigna_rol_por_codigo_e_ignora_id_rol(self):
+        payload = self._payload_base(
+            codigo_acceso='027072003',
+            id_rol=self.docente_role.id_rol,
+        )
+
+        response = self.client.post(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.data['mensaje'],
+            'Usuario registrado exitosamente como Estudiante',
+        )
+        usuario = Usuario.objects.get(id=response.data['user_id'])
+        self.assertEqual(usuario.id_rol, self.estudiante_role)
+        self.assertEqual(usuario.id_carrera, self.carrera)
+        self.assertTrue(usuario.check_password('clave-segura-123'))
+
+    def test_registro_docente_asigna_rol_por_codigo(self):
+        payload = self._payload_base(
+            rut='87654321-0',
+            nombres='Grace',
+            apellidos='Hopper',
+            correo='grace@example.com',
+            codigo_acceso='015072003',
+        )
+        payload.pop('id_carrera')
+
+        response = self.client.post(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        usuario = Usuario.objects.get(id=response.data['user_id'])
+        self.assertEqual(usuario.id_rol, self.docente_role)
+        self.assertIsNone(usuario.id_carrera)
+
+    def test_registro_rechaza_codigo_invalido(self):
+        payload = self._payload_base(codigo_acceso='codigo-filtrado-malo')
+
+        response = self.client.post(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error'], 'Código de acceso inválido o expirado.')
+        self.assertFalse(Usuario.objects.exists())
+
+    def test_registro_estudiante_exige_carrera(self):
+        payload = self._payload_base(codigo_acceso='027072003')
+        payload.pop('id_carrera')
+
+        response = self.client.post(self.url, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data['error'],
+            'El campo id_carrera es obligatorio para este perfil.',
+        )
 
 
 class UsuarioDashboardBodegueroTests(APITestCase):
