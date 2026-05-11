@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 
 from django.conf import settings
@@ -15,6 +16,9 @@ from .models import (
     PrestamoTipoHerramienta,
 )
 from .tasks import expirar_prestamo_pendiente
+
+
+logger = logging.getLogger(__name__)
 
 class PrestamoSerializer(serializers.ModelSerializer):
     fecha_prestamo = serializers.DateTimeField(required=False)
@@ -235,9 +239,20 @@ class PrestamoSerializer(serializers.ModelSerializer):
             now = timezone.now()
             segundos_hasta_inicio = max(int((loan.fecha_prestamo - now).total_seconds()), 0)
             countdown = segundos_hasta_inicio + (30 * 60)
-            transaction.on_commit(
-                lambda: expirar_prestamo_pendiente.apply_async(args=[loan.id_prestamo], countdown=countdown)
-            )
+
+            def programar_expiracion_segura():
+                try:
+                    expirar_prestamo_pendiente.apply_async(
+                        args=[loan.id_prestamo],
+                        countdown=countdown,
+                    )
+                except Exception:
+                    logger.exception(
+                        'No se pudo programar la expiración del préstamo %s en Celery',
+                        loan.id_prestamo,
+                    )
+
+            transaction.on_commit(programar_expiracion_segura)
             # Enviar correo con detalle de tipos
             transaction.on_commit(lambda: loan.enviar_correo_codigo(tipos_list))
         return loan
