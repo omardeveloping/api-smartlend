@@ -8,8 +8,69 @@ from django.utils import timezone
 
 from inventario.models import herramienta_individual
 from operaciones.models import alerta, prestamo
-from usuarios.models import DirectorCarrera
+from usuarios.models import DirectorCarrera, Usuario
 
+@shared_task
+def verificar_mantenciones_proximas():
+    hoy = timezone.now().date()
+    fecha_limite = hoy + timedelta(days=14)
+
+    # Filtrar herramientas que requieran mantención pronto
+    herramientas = herramienta_individual.objects.filter(
+        fecha_mantencion__lte=fecha_limite,
+        fecha_mantencion__gte=hoy
+    )
+
+    bodegueros = Usuario.objects.filter(
+        id_rol__nombre__icontains='bodeguero',
+        esta_baneado=False
+    )
+    emails_bodegueros = [b.correo for b in bodegueros if b.correo]
+
+    if not emails_bodegueros:
+        return {'status': 'sin_bodegueros_activos'}
+
+    alertas_creadas = 0
+
+    for herramienta in herramientas:
+        alerta_existente = alerta.objects.filter(
+            herramienta=herramienta,
+            tipo_alerta=alerta.TipoAlerta.MANTENCION,
+            resuelta=False
+        ).exists()
+
+        if not alerta_existente:
+            dias_restantes = (herramienta.fecha_mantencion - hoy).days
+            
+            alerta.objects.create(
+                tipo_alerta=alerta.TipoAlerta.MANTENCION,
+                herramienta=herramienta,
+                mensaje=f'Requiere mantención en {dias_restantes} días',
+                criticidad='Medio' if dias_restantes > 7 else 'Critico'
+            )
+
+            subject = f'[Smartlend] Mantención próxima: {herramienta.codigo_barras}'
+            body = (
+                f'La herramienta {herramienta.marca} {herramienta.modelo} '
+                f'(Código: {herramienta.codigo_barras}) requiere mantención.\n'
+                f'Fecha programada: {herramienta.fecha_mantencion}\n'
+                f'Días restantes: {dias_restantes} días.\n'
+            )
+
+            try:
+                send_mail(
+                    subject,
+                    body,
+                    settings.DEFAULT_FROM_EMAIL,
+                    emails_bodegueros,
+                    fail_silently=True,
+                )
+            except Exception:
+                pass
+                
+            alertas_creadas += 1
+
+    return {'status': 'ok', 'alertas_creadas': alertas_creadas}
 
 def _expirar_prestamo_si_corresponde(prestamo_id, now=None):
     """

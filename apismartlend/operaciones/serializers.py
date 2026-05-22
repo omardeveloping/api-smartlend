@@ -321,13 +321,17 @@ class PrestamoTurnoGestionSerializer(PrestamoTurnoPublicoSerializer):
 
 class AlertaSerializer(serializers.ModelSerializer):
     prestamo_detalle = PrestamoSerializer(source='prestamo', read_only=True)
+    herramienta_detalle = HerramientaIndividualSerializer(source='herramienta', read_only=True)
 
     class Meta:
         model = alerta
         fields = [
             'id_alerta',
+            'tipo_alerta',
             'prestamo',
             'prestamo_detalle',
+            'herramienta',
+            'herramienta_detalle',
             'mensaje',
             'criticidad',
             'creada_en',
@@ -339,6 +343,8 @@ class AlertaSerializer(serializers.ModelSerializer):
             'id_alerta',
             'prestamo',
             'prestamo_detalle',
+            'herramienta',
+            'herramienta_detalle',
             'mensaje',
             'criticidad',
             'creada_en',

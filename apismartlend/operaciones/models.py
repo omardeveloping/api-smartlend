@@ -166,8 +166,18 @@ class prestamo(models.Model):
             pass
 
 class alerta(models.Model):
+    class TipoAlerta(models.TextChoices):
+        PRESTAMO = 'Prestamo', 'Préstamo'
+        MANTENCION = 'Mantencion', 'Mantención'
+
     id_alerta = models.AutoField(primary_key=True)
-    prestamo = models.OneToOneField(prestamo, on_delete=models.CASCADE, related_name='alerta')
+    tipo_alerta = models.CharField(
+        max_length=20, 
+        choices=TipoAlerta.choices, 
+        default=TipoAlerta.PRESTAMO
+    )
+    prestamo = models.OneToOneField('prestamo', on_delete=models.CASCADE, related_name='alerta', null=True, blank=True)
+    herramienta = models.ForeignKey('inventario.herramienta_individual', on_delete=models.CASCADE, related_name='alertas_mantencion', null=True, blank=True)
     mensaje = models.CharField(max_length=200, default='Prestamo vencido')
     criticidad = models.CharField(max_length=20, null=True, blank=True)
     creada_en = models.DateTimeField(auto_now_add=True)
@@ -176,6 +186,8 @@ class alerta(models.Model):
     archivada = models.BooleanField(default=False)
 
     def __str__(self):
+        if self.tipo_alerta == self.TipoAlerta.MANTENCION:
+            return f'Alerta mantencion herramienta {self.herramienta_id}'
         return f'Alerta prestamo {self.prestamo_id}'
 
 class test(models.Model):

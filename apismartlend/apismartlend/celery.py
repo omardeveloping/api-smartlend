@@ -18,4 +18,8 @@ app.conf.beat_schedule = {
         'task': 'operaciones.tasks.ban_overdue_prestamos',
         'schedule': crontab(hour=0, minute=0),
     },
+    'verificar-mantenciones-diarias': {
+        'task': 'operaciones.tasks.verificar_mantenciones_proximas',
+        'schedule': crontab(hour=8, minute=0),
+    },
 }

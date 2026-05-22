@@ -60,6 +60,7 @@ class herramienta_individual(models.Model):
     )
     disponible = models.BooleanField(default=True) # Indica si la herramienta está disponible para préstamo o reserva
     fecha_adquisicion = models.DateTimeField()
+    fecha_mantencion = models.DateField(null=True, blank=True)
     id_tipo_herramienta = models.ForeignKey(tipo_herramienta, on_delete=models.CASCADE)
 
     @classmethod
