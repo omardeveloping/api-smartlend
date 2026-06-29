@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import DirectorCarrera, Usuario, rol_usuarios
+from .models import DirectorCarrera, Usuario, rol_usuarios, carrera
 
 
 @admin.register(rol_usuarios)
@@ -36,3 +36,9 @@ class UsuarioAdmin(UserAdmin):
 class DirectorCarreraAdmin(admin.ModelAdmin):
     list_display = ('nombre', 'correo', 'carrera')
     search_fields = ('nombre', 'correo', 'carrera__nombre')
+
+
+@admin.register(carrera)
+class CarreraAdmin(admin.ModelAdmin):
+    list_display = ('id_carrera', 'nombre')
+    search_fields = ('nombre',)
