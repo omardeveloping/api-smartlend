@@ -76,7 +76,7 @@ fi
 # Si no hay comando (servicio web) o es gunicorn, recopila estáticos y arranca web
 if [[ -z "$cmd" || "$cmd" == "gunicorn" ]]; then
   run_cmd_as_appuser python manage.py collectstatic --noinput
-  exec_as_appuser gunicorn --bind 0.0.0.0:8000 --workers 3 apismartlend.wsgi:application
+  exec_as_appuser gunicorn --bind 0.0.0.0:8000 --workers 3 --timeout 180 apismartlend.wsgi:application
 fi
 
 # Para cualquier otro comando, simplemente ejecútalo
